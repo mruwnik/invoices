@@ -1,0 +1,15 @@
+[{:seller {:name "Mr. Blobby"
+           :address "ul. podwodna, 12-345, Mierzów"
+           :nip 1234567890
+           :phone 876543216
+           :account "65 2345 1233 1233 4322 3211 4567"
+           :bank "Skok hop"}
+  :buyer {:name "Buty S.A."
+          :address "ul. Szewska 32, 76-543, Bąków"
+          :nip 9875645342}
+  :items [{:vat 8 :netto 123.21 :title "Buty kowbojskie"}
+          {:vat 21 :hourly 43.12 :title "Usługa szewska"}
+          {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą"}]
+  :credentials {:tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
+                :jira-token "qypaAsdFwASasEddDDddASdC"
+                :jira-user "mr.blobby@boots.rs"}}]
