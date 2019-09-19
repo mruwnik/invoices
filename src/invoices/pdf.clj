@@ -55,7 +55,7 @@
        [(format-param "sprzedawca") (format-value (:name seller)) (format-param "nabywca") (format-value (:name buyer))]
        [(format-param "adres") (format-value (:address seller)) (format-param "adres") (format-value (:address buyer))]
        [(format-param "nip") (format-value (:nip seller)) (format-param "nip") (format-value (:nip buyer))]
-       [(format-param "numer telefonu") (format-value (:phone seller))]]
+       (clojure.core/when (:phone seller) [(format-param "numer telefonu") (format-value (:phone seller))])]
 
       [:spacer]
       [:line]
