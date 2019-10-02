@@ -3,7 +3,8 @@
             [invoices.settings :refer [invoices]]
             [invoices.jira :refer [prev-timesheet prev-month]]
             [clojure.tools.cli :refer [parse-opts]]
-            [clojure.string :as str])
+            [clojure.string :as str]
+            [postal.core :refer [send-message]])
   (:gen-class))
 
 (defn invoice-number [when number]
@@ -36,18 +37,32 @@
     (not (contains? item :netto)) (assoc item :netto 0)
     :else item))
 
+(defn send-email [to from {smtp :smtp} invoice]
+  (when (not-any? nil? [to from smtp invoice])
+    (->>
+     (send-message smtp {:from from
+                         :to [to]
+                         :subject invoice
+                         :body [{:type :attachment
+                                 :content (java.io.File. (str invoice ".pdf"))
+                                 :content-type "application/pdf"}]})
+     :error (= :SUCCESS)
+     (println " - email sent: "))))
+
 (defn date-applies? [when {to :to from :from}]
   (and (or (nil? to) (-> when .toString (compare to) (< 0)))
        (or (nil? from) (-> when .toString (compare from) (>= 0)))))
 
 (defn for-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} & [number]]
-  (pdf/render seller buyer
-              (->> items
-                   (filter (partial date-applies? when))
-                   (map (partial set-price (prev-timesheet when creds))))
-              (pdf/last-working-day when)
-              (invoice-number when number)
-              font-path))
+  (->>
+   (pdf/render seller buyer
+               (->> items
+                    (filter (partial date-applies? when))
+                    (map (partial set-price (prev-timesheet when creds))))
+               (pdf/last-working-day when)
+               (invoice-number when number)
+               font-path)
+   (send-email (:email buyer) (:email seller) creds)))
 
 (defn get-invoices [nips config]
   (if (seq nips)

@@ -82,7 +82,8 @@
          ""
          (format-total items vat)
          (format-total items brutto)]])]
-     (str title ".pdf"))))
+     (str title ".pdf"))
+    title))
 
 
 (defn skip-days-off [when]

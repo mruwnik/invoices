@@ -41,6 +41,7 @@ See `resources/config.edn` for an example configuration.
  * :nip     - (required) the NIP of the seller, e.g. 1234567890
  * :account - (required) the number of the account to which the payment should go, e.g. "12 4321 8765 1000 0000 1222 3212"
  * :bank    - (required) the name of the bank in which the account is held, e.g. "Piggy bank"
+ * :email   - (optional) the email of the seller, e.g. "mr.blobby@bla.com". This is required if a confirmation email is to be sent
  * :phone   - (optional) the phone number of the seller 555333111
  * :team    - (optional) a team name, to be prepended to the name of the resulting pdf, e.g. "the A team"
 
@@ -52,6 +53,7 @@ The buyer can have the following keys
  * :name    - (required) the name of the seller, e.g. "Mr. Blobby"
  * :address - (required) the address of the seller, e.g. "ul. Szeroka 12, 12-345, Buty"
  * :nip     - (required) the NIP of the seller, e.g. 1234567890
+ * :email   - (optional) the email of the buyer, e.g. "faktury@bla.com". This is required if a confirmation email is to be sent
 
 ### Items
 
@@ -102,3 +104,17 @@ should look like the following:
     :credentials {:tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
                   :jira-token "qypaAsdFwASasEddDDddASdC"
                   :jira-user "mr.blobby@boots.rs"}
+
+If a confirmation email is to be sent, a :smtp key must also be provided, e.g.:
+
+
+    :credentials {:smtp {:host "smtp.gmail.com"
+                       :user "mr.blobby@buty.sa"
+                       :pass "asd;l;kjsdfkljld"
+                       :ssl true}}
+
+## Confirmation emails
+
+Each invoice can also be sent via email to the appropriate seller. For this to work, both the seller
+and the buyer must have an :email key set and the credentials must contain a :smtp key with the
+:smtp settings for the email server.

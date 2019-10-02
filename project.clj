@@ -5,6 +5,7 @@
             :url "https://www.eclipse.org/legal/epl-2.0/"}
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.clojure/tools.cli "0.4.2"]
+                 [com.draines/postal "2.0.3"]
                  [clj-http "3.10.0"]
                  [cheshire "5.9.0"]
                  [clj-pdf "2.4.0"]]

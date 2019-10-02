@@ -26,4 +26,6 @@
 
 (defn prev-timesheet
   "Get the timesheet for the previous month"
-  [when credentials] (get-timesheet (me credentials) (prev-month when) credentials))
+  [when credentials]
+  (clojure.core/when (:jira-user credentials)
+    (get-timesheet (me credentials) (prev-month when) credentials)))
