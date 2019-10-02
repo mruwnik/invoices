@@ -1,7 +1,7 @@
 (ns invoices.core
   (:require [invoices.pdf :as pdf]
             [invoices.settings :refer [invoices]]
-            [invoices.jira :refer [prev-timesheet]]
+            [invoices.jira :refer [prev-timesheet prev-month]]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str])
   (:gen-class))
@@ -36,9 +36,15 @@
     (not (contains? item :netto)) (assoc item :netto 0)
     :else item))
 
+(defn date-applies? [when {to :to from :from}]
+  (and (or (nil? to) (-> when .toString (compare to) (< 0)))
+       (or (nil? from) (-> when .toString (compare from) (>= 0)))))
+
 (defn for-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} & [number]]
   (pdf/render seller buyer
-              (map (partial set-price (prev-timesheet when creds)) items)
+              (->> items
+                   (filter (partial date-applies? when))
+                   (map (partial set-price (prev-timesheet when creds))))
               (pdf/last-working-day when)
               (invoice-number when number)
               font-path))
@@ -54,7 +60,7 @@
     :default 1
     :parse-fn #(Integer/parseInt %)]
    ["-w" "--when DATE" "The month for which to generate the invoice"
-    :default (java.time.LocalDate/now)
+    :default (-> (java.time.LocalDate/now) prev-month)
     :parse-fn #(java.time.LocalDate/parse %)]
    ;; A non-idempotent option (:default is applied first)
    ["-c" "--company NIP" "companies for which to generate invoices. All, if not provided"

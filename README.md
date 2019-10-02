@@ -55,8 +55,9 @@ The buyer can have the following keys
 
 ### Items
 
-The list of items should contain maps with a required :title, an optional :vat (if not provided it is assumed that
-item is VAT free), and a key providing the cost of the item. The price can be provided in one of the following ways:
+The list of items should contain maps with a required :title, optional :vat (if not provided it is assumed that
+item is VAT free), :to (the date from which this item is valid), :from (the date till which this item is valid)
+and a key providing the cost of the item. The price can be provided in one of the following ways:
 
  * :netto            - is a set price and will be displayed as provided
  * :hourly           - is an hourly price - JIRA will be queried in order to work out how many hours should be billed
@@ -76,11 +77,11 @@ item is VAT free), and a key providing the cost of the item. The price can be pr
 
 Examples:
 
-    ; 8% VAT, and a price of 600
-    {:vat 8 :netto 600 :title "Shoes"}
+    ; 8% VAT, and a price of 600, recurring every period before 2019-05-30
+    {:vat 8 :netto 600 :title "Shoes" :to "2019-05-30"}
 
-    ; 12% VAT, and an hourly rate of 12
-    {:vat 12 :hourly 12 :title "Something worth 12/h"}
+    ; 12% VAT, and an hourly rate of 12, first appearing on 2019-07-01
+    {:vat 12 :hourly 12 :title "Something worth 12/h" :from "2019-07-01"}
 
     ; 23% VAT, working part time with a base salary of 5000
     {:vat 23 :base 5000 :per-day 4 :title "Part time job at 5000"}]
