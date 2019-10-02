@@ -25,11 +25,12 @@
     (not (contains? item :netto)) (assoc item :netto 0)
     :else item))
 
-(defn for-month [when {seller :seller buyer :buyer items :items creds :credentials} & [number]]
+(defn for-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} & [number]]
   (pdf/render seller buyer
               (map (partial set-price when creds) items)
               (pdf/last-working-day when)
-              (invoice-number when number)))
+              (invoice-number when number)
+              font-path))
 
 (defn get-invoices [nips config]
   (if (seq nips)

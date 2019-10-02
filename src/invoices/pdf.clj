@@ -1,6 +1,7 @@
 (ns invoices.pdf
   (:require [clj-pdf.core :refer [pdf]]
-            [clojure.string :as str]))
+            [clojure.string :as str])
+  (:import [java.awt Font]))
 
 
 (defn round [val]
@@ -32,7 +33,7 @@
         (str/replace #"[ -/]" "_"))))
 
 
-(defn render [seller buyer items when number]
+(defn render [seller buyer items when number & [font-path]]
   (let [title (get-title (:team seller) (:name seller) number)]
     (println " -" title)
     (pdf
@@ -42,7 +43,7 @@
        :bottom-margin 10
        :left-margin   10
        :top-margin    20
-       :font {:encoding :unicode :ttf-name "/usr/share/fonts/gsfonts/NimbusSans-Regular.otf"}
+       :font (clojure.core/when font-path{:encoding :unicode :ttf-name font-path})
        :size          "a4"
        :footer        "page"}
 

@@ -10,6 +10,7 @@
   :items [{:vat 8 :netto 123.21 :title "Buty kowbojskie"}
           {:vat 21 :hourly 43.12 :title "Usługa szewska"}
           {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą"}]
+  :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
   :credentials {:tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
                 :jira-token "qypaAsdFwASasEddDDddASdC"
                 :jira-user "mr.blobby@boots.rs"}}]

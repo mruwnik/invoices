@@ -27,6 +27,7 @@ following keys:
  * :seller      - the seller's (i.e. the entity to be paid) information. This is required
  * :buyer       - the buyer's (i.e. the entity that will pay) information. This is required
  * :items       - a list of items to be paid for
+ * :font-path   - (optional) *the path to a font file, e.g. "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
  * :credentials - JIRA and Tempo access credentials. These are needed if the price depends on tracked time
 
 See `resources/config.edn` for an example configuration.
