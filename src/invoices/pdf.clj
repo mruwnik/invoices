@@ -8,7 +8,7 @@
   (float (/ (Math/round (* val 100.0)) 100)))
 
 (defn vat [{netto :netto vat-level :vat}]
-  (round (* netto (/ vat-level 100))))
+  (if-not vat-level 0 (* netto (/ vat-level 100))))
 
 (defn brutto [{netto :netto :as item}] (round (+ netto (vat item))))
 
@@ -22,7 +22,11 @@
 (defn format-product [{netto :netto vat-level :vat title :title :as item}]
   (concat
    [[:cell {:colspan 4} title]]
-   (map str [1 (-> netto round str) (str vat-level "%") (vat item) (brutto item)])))
+   (map str [1
+             (-> netto round str)
+             (if-not vat-level "zw." (str vat-level "%"))
+             (-> item vat round str)
+             (brutto item)])))
 
 
 (defn get-title [team who which]

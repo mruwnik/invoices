@@ -9,25 +9,36 @@
 (defn invoice-number [when number]
   (->> [(or number 1) (-> when .getMonthValue) (-> when .getYear)] (map str) (str/join "/")))
 
-(defn calc-part-time [when creds {base :base per-day :per-day}]
-  (let [{worked :worked total :required} (prev-timesheet when creds)
-        hourly (/ (* base 8) (* total per-day))]
+(defn parse-custom [work-log func]
+  (cond
+    (and (list? func) (some #{(first func)} '(+ - * /))) (apply (resolve (first func))
+                                                                (map (partial parse-custom work-log) (rest func)))
+    (list? func) (throw (IllegalArgumentException. (str "Invalid functor provided: " (first func))))
+    (some #{func} '(:worked :required :to :from)) (func work-log)
+    :else func))
+
+(defn calc-part-time [{worked :worked total :required} {base :base per-day :per-day}]
+  (let [hourly (/ (* base 8) (* total per-day))]
     (float (* hourly worked))))
 
-(defn calc-hourly [when creds {hourly :hourly}]
-    (-> (prev-timesheet when creds) :worked (* hourly)))
+(defn calc-hourly [{worked :worked} {hourly :hourly}]
+    (* worked hourly))
+
+(defn calc-custom [worked {function :function}]
+  (parse-custom worked function))
 
 
-(defn set-price [when creds item]
+(defn set-price [worked item]
   (cond
-    (contains? item :hourly) (assoc item :netto (calc-hourly when creds item))
-    (contains? item :base) (assoc item :netto (calc-part-time when creds item))
+    (contains? item :function) (assoc item :netto (calc-custom worked item))
+    (contains? item :hourly) (assoc item :netto (calc-hourly worked item))
+    (contains? item :base) (assoc item :netto (calc-part-time worked item))
     (not (contains? item :netto)) (assoc item :netto 0)
     :else item))
 
 (defn for-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} & [number]]
   (pdf/render seller buyer
-              (map (partial set-price when creds) items)
+              (map (partial set-price (prev-timesheet when creds)) items)
               (pdf/last-working-day when)
               (invoice-number when number)
               font-path))

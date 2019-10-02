@@ -55,8 +55,8 @@ The buyer can have the following keys
 
 ### Items
 
-The list of items should contain maps with two required keys (:vat and :title), and a key
-providing the cost of the item. The price can be provided in one of three ways:
+The list of items should contain maps with a required :title, an optional :vat (if not provided it is assumed that
+item is VAT free), and a key providing the cost of the item. The price can be provided in one of the following ways:
 
  * :netto            - is a set price and will be displayed as provided
  * :hourly           - is an hourly price - JIRA will be queried in order to work out how many hours should be billed
@@ -69,6 +69,10 @@ providing the cost of the item. The price can be provided in one of three ways:
                        be :base. Otherwise the final price will be scaled accordingly. This is pretty much equivalent
                        to working out what the hourly rate should be in a given month and multiplying it by the number
                        of hours worked in that month
+ * :function         - an S-expression describing how to calculate the net value. Only numbers, basic mathematical
+                       operations (+, -, /, *) and timesheet specific variables are supported (:worked, :required,
+                       :to, :from).
+
 
 Examples:
 
@@ -80,6 +84,9 @@ Examples:
 
     ; 23% VAT, working part time with a base salary of 5000
     {:vat 23 :base 5000 :per-day 4 :title "Part time job at 5000"}]
+
+    ; 23% VAT, with a custom function
+    {:vat 23 :function (* :worked (/ 10000 :required)) :title "Custom function"}]
 
 
 ### Credentials

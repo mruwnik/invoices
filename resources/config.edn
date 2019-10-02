@@ -9,6 +9,8 @@
           :nip 9875645342}
   :items [{:vat 8 :netto 123.21 :title "Buty kowbojskie"}
           {:vat 21 :hourly 43.12 :title "Usługa szewska"}
+          {:netto 321.45 :title "Usługa szewska bez VAT"}
+          {:vat 23 :function (* :worked (+ 1 2 3 (- 23 13))) :title "Pucowania obuwia"}
           {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą"}]
   :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
   :credentials {:tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
