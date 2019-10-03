@@ -27,8 +27,9 @@ following keys:
  * :seller      - the seller's (i.e. the entity to be paid) information. This is required
  * :buyer       - the buyer's (i.e. the entity that will pay) information. This is required
  * :items       - a list of items to be paid for
- * :font-path   - (optional) *the path to a font file, e.g. "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
- * :credentials - JIRA and Tempo access credentials. These are needed if the price depends on tracked time
+ * :credentials - (optional) JIRA and Tempo access credentials. These are needed if the price depends on tracked time
+ * :font-path   - (optional) the path to a font file, e.g. "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+ * :callbacks   - (optional) a list of commands to be called with the resulting pdf file
 
 See `resources/config.edn` for an example configuration.
 
@@ -118,3 +119,22 @@ If a confirmation email is to be sent, a :smtp key must also be provided, e.g.:
 Each invoice can also be sent via email to the appropriate seller. For this to work, both the seller
 and the buyer must have an :email key set and the credentials must contain a :smtp key with the
 :smtp settings for the email server.
+
+
+## Callbacks
+
+A list of additional commands can be added to each invoice. Each command will be called with
+the generated invoice as its final parameter, e.g.
+
+    {:seller {...}
+     :buyer {...}
+     :items [...]
+     :callbacks [["ls" "-l"] ["rm"] ["du" "-sh"]]}
+
+Will call the following commands (assuming that the generated invoice is `/path/to/file.pdf`):
+
+    ls -l /path/to/file.pdf
+    du -sh /path/to/file.pdf
+    rm /path/to/file.pdf
+
+The last one will obviously fail, as the file no longer exists, and the error message will be displayed

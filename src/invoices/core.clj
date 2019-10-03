@@ -4,6 +4,7 @@
             [invoices.jira :refer [prev-timesheet prev-month]]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
+            [clojure.java.shell :refer [sh]]
             [postal.core :refer [send-message]])
   (:gen-class))
 
@@ -49,20 +50,36 @@
      :error (= :SUCCESS)
      (println " - email sent: "))))
 
+(defn run-callback [file callback]
+  (let [command (concat callback [file])
+        str-command (str/join " " command)
+        result (apply sh command)]
+    (if (= (:exit result) 0)
+      (println "    *" str-command)
+      (println "    X" str-command ":\n" (:err result)))
+    (assoc result :command str-command)))
+
+(defn run-callbacks [invoice callbacks]
+  (doall (map (partial run-callback invoice) callbacks)))
+
 (defn date-applies? [when {to :to from :from}]
   (and (or (nil? to) (-> when .toString (compare to) (< 0)))
        (or (nil? from) (-> when .toString (compare from) (>= 0)))))
 
-(defn for-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} & [number]]
-  (->>
-   (pdf/render seller buyer
-               (->> items
-                    (filter (partial date-applies? when))
-                    (map (partial set-price (prev-timesheet when creds))))
-               (pdf/last-working-day when)
-               (invoice-number when number)
-               font-path)
-   (send-email (:email buyer) (:email seller) creds)))
+
+(defn render-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} number]
+  (pdf/render seller buyer
+              (->> items
+                   (filter (partial date-applies? when))
+                   (map (partial set-price (prev-timesheet when creds))))
+              (pdf/last-working-day when)
+              (invoice-number when number)
+              font-path))
+
+(defn for-month [when {seller :seller buyer :buyer creds :credentials callbacks :callbacks :as invoice} & [number]]
+  (let [file (-> when (render-month invoice number) (str ".pdf") java.io.File. .getAbsolutePath)]
+    (send-email (:email buyer) (:email seller) creds file)
+    (run-callbacks file callbacks)))
 
 (defn get-invoices [nips config]
   (if (seq nips)
@@ -95,7 +112,7 @@
        (exit 0)))
 
 (defn -main
-  "I don't do a whole lot ... yet."
+  "Generate invoice pdfs"
   [& args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
     (cond
@@ -104,5 +121,6 @@
       (not= 1 (count arguments)) (exit -1 "No config file provided"))
     (println "Generating invoices")
     (doseq [[i invoice] (map-indexed vector (get-invoices (:company options) (first arguments)))]
-      (for-month (:when options) invoice (+ i (:number options))))
-    ))
+      (for-month (:when options) invoice (+ i (:number options)))
+      (println)))
+  (shutdown-agents))
