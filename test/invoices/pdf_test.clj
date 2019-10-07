@@ -33,6 +33,15 @@
     (is (= (format-product {:netto 1000 :title "bla bla"})
            [[:cell {:colspan 4} "bla bla"] "1" "1000.0" "zw." "0.0" "1000.0"]))))
 
+(deftest test-format-notes
+  (testing "Check whether notes get correctly formatted"
+    (is (= (format-notes ["line 1" "line 2" "line 3"])
+           [[:spacer 2] [:line] (list :table {:border false, :padding 0, :spacing 0} [[:phrase {:style :bold} "Uwagi:"]] ["line 1"] ["line 2"] ["line 3"])])))
+
+  (testing "Check whether the notes section is skipped if none provided."
+    (is (nil? (format-notes [])))
+    (is (nil? (format-notes nil)))))
+
 (deftest test-get-title
   (testing "Check whether getting titles works"
     (is (= (get-title nil "mr blobby" "2019/02/11") "mr_blobby_luty_2019_02_11"))
@@ -106,3 +115,21 @@
                       ""
                       [:cell {:background-color [216 247 249]} "9.86"]
                       [:cell {:background-color [216 247 249]} "454.52"]])])))))
+
+(deftest test-add-notes
+  (testing "Check whether notes get correctly added"
+    (is (= (add-notes [:table] [{:notes ["line 1" "line 2"]} {} {} {:notes ["line 3"]} {:notes []}])
+           [:table
+            [[:spacer 2] [:line]
+             (list :table {:border false, :padding 0, :spacing 0} [[:phrase {:style :bold} "Uwagi:"]]
+                   ["line 1"] ["line 2"] ["line 3"])]])))
+
+  (testing "Check whether duplicates get removed"
+    (is (= (add-notes [:table] [{:notes ["line 1" "line 1"]} {} {} {:notes ["line 1"]} {:notes []}])
+           [:table
+            [[:spacer 2] [:line]
+             (list :table {:border false, :padding 0, :spacing 0} [[:phrase {:style :bold} "Uwagi:"]] ["line 1"])]])))
+
+  (testing "Check whether the notes section is skipped if none provided."
+    (is (= (add-notes [:table] []) [:table nil]))
+    (is (= (add-notes [:table] nil) [:table nil]))))
