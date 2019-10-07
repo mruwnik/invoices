@@ -1,7 +1,9 @@
 (ns invoices.core
   (:require [invoices.pdf :as pdf]
             [invoices.settings :refer [invoices]]
-            [invoices.jira :refer [prev-timesheet prev-month]]
+            [invoices.jira :refer [prev-timesheet]]
+            [invoices.time :refer [prev-month last-working-day date-applies?]]
+            [invoices.calc :refer [set-price]]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
             [clojure.java.shell :refer [sh]]
@@ -10,33 +12,6 @@
 
 (defn invoice-number [when number]
   (->> [(or number 1) (-> when .getMonthValue) (-> when .getYear)] (map str) (str/join "/")))
-
-(defn parse-custom [work-log func]
-  (cond
-    (and (list? func) (some #{(first func)} '(+ - * /))) (apply (resolve (first func))
-                                                                (map (partial parse-custom work-log) (rest func)))
-    (list? func) (throw (IllegalArgumentException. (str "Invalid functor provided: " (first func))))
-    (some #{func} '(:worked :required :to :from)) (func work-log)
-    :else func))
-
-(defn calc-part-time [{worked :worked total :required} {base :base per-day :per-day}]
-  (let [hourly (/ (* base 8) (* total per-day))]
-    (float (* hourly worked))))
-
-(defn calc-hourly [{worked :worked} {hourly :hourly}]
-    (* worked hourly))
-
-(defn calc-custom [worked {function :function}]
-  (parse-custom worked function))
-
-
-(defn set-price [worked item]
-  (cond
-    (contains? item :function) (assoc item :netto (calc-custom worked item))
-    (contains? item :hourly) (assoc item :netto (calc-hourly worked item))
-    (contains? item :base) (assoc item :netto (calc-part-time worked item))
-    (not (contains? item :netto)) (assoc item :netto 0)
-    :else item))
 
 (defn send-email [to from {smtp :smtp} invoice]
   (when (not-any? nil? [to from smtp invoice])
@@ -62,17 +37,13 @@
 (defn run-callbacks [invoice callbacks]
   (doall (map (partial run-callback invoice) callbacks)))
 
-(defn date-applies? [when {to :to from :from}]
-  (and (or (nil? to) (-> when .toString (compare to) (< 0)))
-       (or (nil? from) (-> when .toString (compare from) (>= 0)))))
-
 
 (defn render-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} number]
   (pdf/render seller buyer
               (->> items
                    (filter (partial date-applies? when))
                    (map (partial set-price (prev-timesheet when creds))))
-              (pdf/last-working-day when)
+              (last-working-day when)
               (invoice-number when number)
               font-path))
 

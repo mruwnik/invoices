@@ -1,5 +1,6 @@
 (ns invoices.jira
-  (:require [clj-http.client :as client]))
+  (:require [clj-http.client :as client]
+            [invoices.time :refer [last-day prev-month]]))
 
 (defn tempo [{tempo-token :tempo-token} endpoint params]
   (-> (str "https://api.tempo.io/core/3" endpoint)
@@ -15,9 +16,6 @@
 
 (defn timesheet [{spent :timeSpentSeconds required :requiredSeconds period :period}]
   (merge {:worked (/ spent 3600) :required (/ required 3600)} period))
-
-(defn last-day [when] (-> when (.withDayOfMonth 1) (.plusMonths 1) (.minusDays 1)))
-(defn prev-month [when] (-> when (.withDayOfMonth 1) (.minusMonths 1)))
 
 (defn get-timesheet [who when credentials]
   (->> {"from" (-> when (.withDayOfMonth 1) .toString) "to" (-> when last-day .toString)}

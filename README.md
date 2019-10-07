@@ -74,8 +74,7 @@ and a key providing the cost of the item. The price can be provided in one of th
                        to working out what the hourly rate should be in a given month and multiplying it by the number
                        of hours worked in that month
  * :function         - an S-expression describing how to calculate the net value. Only numbers, basic mathematical
-                       operations (+, -, /, *) and timesheet specific variables are supported (:worked, :required,
-                       :to, :from).
+                       operations (+, -, /, *) and timesheet specific variables are supported (:worked, :required).
 
 
 Examples:
