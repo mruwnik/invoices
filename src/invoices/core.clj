@@ -1,29 +1,17 @@
 (ns invoices.core
   (:require [invoices.pdf :as pdf]
             [invoices.settings :refer [invoices]]
-            [invoices.jira :refer [prev-timesheet]]
+            [invoices.timesheets :refer [prev-timesheet]]
             [invoices.time :refer [prev-month last-working-day date-applies?]]
             [invoices.calc :refer [set-price]]
+            [invoices.email :refer [send-email]]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
-            [clojure.java.shell :refer [sh]]
-            [postal.core :refer [send-message]])
+            [clojure.java.shell :refer [sh]])
   (:gen-class))
 
 (defn invoice-number [when number]
   (->> [(or number 1) (-> when .getMonthValue) (-> when .getYear)] (map str) (str/join "/")))
-
-(defn send-email [to from {smtp :smtp} invoice]
-  (when (not-any? nil? [to from smtp invoice])
-    (->>
-     (send-message smtp {:from from
-                         :to [to]
-                         :subject invoice
-                         :body [{:type :attachment
-                                 :content (java.io.File. (str invoice ".pdf"))
-                                 :content-type "application/pdf"}]})
-     :error (= :SUCCESS)
-     (println " - email sent: "))))
 
 (defn run-callback [file callback]
   (let [command (concat callback [file])

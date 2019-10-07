@@ -6,6 +6,8 @@
   :dependencies [[org.clojure/clojure "1.10.0"]
                  [org.clojure/tools.cli "0.4.2"]
                  [com.draines/postal "2.0.3"]
+                 [io.forward/clojure-mail "1.0.8"]
+                 [commons-net "3.6"]
                  [clj-http "3.10.0"]
                  [cheshire "5.9.0"]
                  [clj-pdf "2.4.0"]]

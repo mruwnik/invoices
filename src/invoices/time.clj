@@ -1,4 +1,5 @@
-(ns invoices.time)
+(ns invoices.time
+  (:require [clojure.string :as str]))
 
 
 (defn last-day
@@ -25,3 +26,6 @@
   [date {to :to from :from}]
   (and (or (nil? to) (-> date .toString (compare to) (< 0)))
        (or (nil? from) (-> date .toString (compare from) (>= 0)))))
+
+(defn format-month [formatter month]
+  (->> formatter (java.time.format.DateTimeFormatter/ofPattern) (.format month)))

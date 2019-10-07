@@ -1,4 +1,4 @@
-(ns invoices.jira
+(ns invoices.timesheets
   (:require [clj-http.client :as client]
             [invoices.time :refer [last-day prev-month]]))
 
