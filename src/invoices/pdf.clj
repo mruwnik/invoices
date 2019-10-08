@@ -73,10 +73,15 @@
     [:spacer]
     [:line]
     [:table {:border false :padding 0 :spacing 0 :num-cols 6}
-     [(format-param "data wystawienia") (-> when .toString format-value) (format-param "sposób płatności") (format-value "Przelew")]
-     [(format-param "data sprzedaży") (-> when .toString format-value) (format-param "bank") (format-value (:bank seller))]
-     [(format-param "termin płatności") (-> when (.plusDays 14) .toString format-value) (format-param "numer konta") (format-value (:account seller))]]
-
+     (concat [(format-param "data wystawienia") (-> when .toString format-value)]
+             (if-not (:account seller) ["" "" ""]
+               [(format-param "sposób płatności") (format-value "Przelew")]))
+     (concat [(format-param "data sprzedaży") (-> when .toString format-value)]
+             (if-not (:account seller) ["" "" ""]
+                     [(format-param "bank") (format-value (:bank seller))]))
+     (concat [(format-param "termin płatności") (-> when (.plusDays 14) .toString format-value)]
+             (if-not (:account seller) ["" "" ""]
+                     [(format-param "numer konta") (format-value (:account seller))]))]
     (concat
      [:table
       {:header [{:background-color [216 247 249]} "Lp." [:cell {:colspan 4} "Nazwa"] "Ilość" "Cena netto" "Stawka VAT" "Kwota VAT" "Wartość brutto"]
