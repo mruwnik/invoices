@@ -38,9 +38,10 @@
 
 (defn prepare-invoice [{seller :seller font :font-path} month worklogs invoice]
   (-> invoice
-      (assoc :seller seller)
+      (update :seller (partial merge seller))
       (assoc :font-path font)
       (calc-prices worklogs)))
+
 
 (defn process-invoices [{invoices :invoices :as config} month worklogs]
   (let [invoices (map (partial prepare-invoice config month worklogs) invoices)]

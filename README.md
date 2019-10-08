@@ -53,6 +53,7 @@ Each invoice can have the following keys:
  * :items       - a list of items to be paid for
  * :imap        - (optional) email credentials. These are needed if a confirmation email is to be sent
  * :callbacks   - (optional) a list of commands to be called with the resulting pdf file
+ * :seller      - (optional) invoice specific overrides for the seller object
 
 ### Buyer
 
