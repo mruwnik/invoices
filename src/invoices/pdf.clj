@@ -30,14 +30,21 @@
       [:table {:border false :padding 0 :spacing 0} [[:phrase {:style :bold} "Uwagi:"]]]
       (map vector notes))]))
 
+;;; Title helpers
+(def month-names
+  ["" "styczen" "luty" "marzec" "kwiecien" "maj" "czerwiec" "lipiec" "sierpien" "wrzesien" "pazdziernik" "listopad" "grudzien"])
 
-(defn get-title [team who which]
-  (let [[nr month year] (-> which (str/split #"/"))
-        months ["" "styczen" "luty" "marzec" "kwiecien" "maj" "czerwiec" "lipiec"
-                "sierpien" "wrzesien" "pazdziernik" "listopad" "grudzien"]]
-    (-> (str/join "_" (remove nil? [team who (nth months (Integer/parseInt month)) which]))
-        (str/replace #"[ -/]" "_"))))
+(defn month-name [month]
+  (->> (str/split month #"/") second (Integer/parseInt) (nth month-names)))
 
+(defn title-base [{{team :team who :name} :seller title :title}]
+  (if title title (->> [team who] (remove nil?) (str/join "_"))))
+
+(defn get-title [item which]
+  (->> [(title-base item) (month-name which) which]
+       (map #(str/replace % #"[ -/]" "_"))
+       (str/join "_")))
+;;;
 
 (defn pdf-body
   "Generate the actual pdf body"
@@ -90,11 +97,11 @@
   (->> items (map :notes) (remove nil?) flatten distinct format-notes (conj body)))
 
 
-(defn render [seller buyer items when number & [font-path]]
-  (let [title (get-title (:team seller) (:name seller) number)]
-    (println " -" title)
+(defn render [{seller :seller buyer :buyer items :items font-path :font-path :as invoice} when number]
+  (let [title (get-title invoice number)]
+    (println " - rendering" title)
     (-> title
         (pdf-body seller buyer items when number (clojure.core/when font-path {:encoding :unicode :ttf-name font-path}))
         (add-notes items)
         (pdf (str title ".pdf")))
-    title))
+    (-> title (str ".pdf") java.io.File.)))

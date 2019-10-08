@@ -7,18 +7,17 @@
             [clojure-mail.folder :as folder]
             [clojure-mail.message :refer (read-message) :as mess]))
 
-(defn send-email [to from {smtp :smtp} invoice]
-  (when (not-any? nil? [to from smtp invoice])
-    (->>
-     (send-message smtp {:from from
-                         :to [to]
-                         :subject invoice
-                         :body [{:type :attachment
-                                 :content (java.io.File. (str invoice ".pdf"))
-                                 :content-type "application/pdf"}]})
-     :error (= :SUCCESS)
-     (println " - email sent: "))))
-
+(defn send-invoice [invoice to {from :user :as smtp}]
+  (when (and (not-any? nil? [to from smtp invoice])
+             (->>
+              (send-message smtp {:from from
+                                  :to [to]
+                                  :subject (.getName invoice)
+                                  :body [{:type :attachment
+                                          :content (.getAbsolutePath invoice)
+                                          :content-type "application/pdf"}]})
+              :error (= :SUCCESS)))
+    (println " - email sent to " to)))
 
 (defn server-find-messages
   "Find all messages in the given folder, filtering them by subject and sender (use nil to ignore)."
@@ -62,11 +61,15 @@
 (defn zip-item [headers cell]
   (into (sorted-map) (map vector headers cell)))
 
+(defn parse-float [s]
+  (Float. (re-find  #"[\d\.]+" s )))
+
 (defn extract-items [headers message]
   (->> message
        mess/get-content
        split-cells
-       (map (partial zip-item headers))))
+       (map (partial zip-item headers))
+       (map #(update % :worked parse-float))))
 
 (defn get-worklogs
   "Get all worklogs for the given month from the given imap server."

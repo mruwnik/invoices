@@ -21,16 +21,16 @@ The following options are available:
 
 ## Config file
 
-The config file should be a EDN file containing a list of invoices. Each invoice can have the
-following keys:
+The config file should be a EDN file containing a list of invoices, seller info,
+optional font info and optional worklogs info, e.g.:
 
- * :seller      - the seller's (i.e. the entity to be paid) information. This is required
- * :buyer       - the buyer's (i.e. the entity that will pay) information. This is required
- * :items       - a list of items to be paid for
- * :credentials - (optional) JIRA and Tempo access credentials. These are needed if the price depends on tracked time
- * :font-path   - (optional) the path to a font file, e.g. "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
- * :callbacks   - (optional) a list of commands to be called with the resulting pdf file
+    {:seller {(...)}
+     :invoices [(...)]
+     :font-path "/path/to/font"
+     :worklogs [(...)]}
 
+
+`:font-path` should be the path to a font file, e.g. "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
 See `resources/config.edn` for an example configuration.
 
  ### Seller
@@ -42,10 +42,17 @@ See `resources/config.edn` for an example configuration.
  * :nip     - (required) the NIP of the seller, e.g. 1234567890
  * :account - (required) the number of the account to which the payment should go, e.g. "12 4321 8765 1000 0000 1222 3212"
  * :bank    - (required) the name of the bank in which the account is held, e.g. "Piggy bank"
- * :email   - (optional) the email of the seller, e.g. "mr.blobby@bla.com". This is required if a confirmation email is to be sent
  * :phone   - (optional) the phone number of the seller 555333111
  * :team    - (optional) a team name, to be prepended to the name of the resulting pdf, e.g. "the A team"
 
+### Invoices
+
+Each invoice can have the following keys:
+
+ * :buyer       - the buyer's (i.e. the entity that will pay) information. This is required
+ * :items       - a list of items to be paid for
+ * :imap        - (optional) email credentials. These are needed if a confirmation email is to be sent
+ * :callbacks   - (optional) a list of commands to be called with the resulting pdf file
 
 ### Buyer
 
@@ -77,6 +84,8 @@ The price can be provided in one of the following ways:
  * :function         - an S-expression describing how to calculate the net value. Only numbers, basic mathematical
                        operations (+, -, /, *) and timesheet specific variables are supported (:worked, :required).
 
+If the price is to be calculated on the basis of a worklog, add a `:worklog` key
+and make sure the `:worklogs` section has an item that can be used to access the worklog.
 
 Examples:
 
@@ -84,42 +93,80 @@ Examples:
     {:vat 8 :netto 600 :title "Shoes" :to "2019-05-30" :notes ["A note at the bottom"]}
 
     ; 12% VAT, and an hourly rate of 12, first appearing on 2019-07-01
-    {:vat 12 :hourly 12 :title "Something worth 12/h" :from "2019-07-01"}
+    {:vat 12 :hourly 12 :title "Something worth 12/h" :from "2019-07-01" :worklog "washed_dishes"}
 
     ; 23% VAT, working part time with a base salary of 5000
-    {:vat 23 :base 5000 :per-day 4 :title "Part time job at 5000"}]
+    {:vat 23 :base 5000 :per-day 4 :title "Part time job at 5000" :worklog "cleaned_shoes"}]
 
     ; 23% VAT, with a custom function
-    {:vat 23 :function (* :worked (/ 10000 :required)) :title "Custom function"}]
+    {:vat 23 :function (* :worked (/ 10000 :required)) :title "Custom function"} :worklog :from-jira]
 
 
-### Credentials
+### Worklogs
 
 In the case of hourly rates or variable hours, the number of hours worked needs to be fetched
-from a time tracker. Which requires appropriate credentials. See
-[Jira's](https://developer.atlassian.com/cloud/jira/platform/jira-rest-api-basic-authentication/)
+from a time tracker. Which requires appropriate credentials, described in the
+following sections. Apart from provider specific values, each credentials map
+must contain a `:type` key that describes the provider, and a `:ids` list, which
+should contain all worklog ids that can be found in the given worklog. These ids
+are used to link worklog values with items via the `:worklog` key of items.
+
+#### Jira
+
+See [Jira's](https://developer.atlassian.com/cloud/jira/platform/jira-rest-api-basic-authentication/)
 and [Tempo's](https://tempo-io.atlassian.net/wiki/spaces/KB/pages/199065601/How+to+use+Tempo+Cloud+REST+APIs)
-documentation on how to get the appropriate tokens. Once the tokens are generated, the :credentials
-should look like the following:
+documentation on how to get the appropriate tokens. Once the tokens are generated, add an appropriate
+worklog entry like the following:
 
-    :credentials {:tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
-                  :jira-token "qypaAsdFwASasEddDDddASdC"
-                  :jira-user "mr.blobby@boots.rs"}
+    :worklogs [{:type :jira
+                :ids [:from-jira]
+                :tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
+                :jira-token "qypaAsdFwASasEddDDddASdC"
+                :jira-user "mr.blobby@boots.rs"}]
 
-If a confirmation email is to be sent, a :smtp key must also be provided, e.g.:
+#### Emails
 
+Emails with worklogs should be sent in a psudo csv format, seperated by `;` or
+whitespace. Use the `:headers` key to describe what data is contained in each
+column.
+The emails are looked for in the `:folder` folder of the email account, and all
+emails from `:from` (or anyone if `:from` is nil or missing) and with the subject
+contining `:subject` formatted with the processed date.
 
-    :credentials {:smtp {:host "smtp.gmail.com"
-                       :user "mr.blobby@buty.sa"
-                       :pass "asd;l;kjsdfkljld"
-                       :ssl true}}
+Assuming the processed date is 2012-12-12, and the following configuration is provided:
+
+    :worklogs [{:type :imap
+                :ids [:item1 :item2]
+                :folder "inbox"
+                :host "imap.gmail.com"
+                :user "mr.blobby@boots.rs"
+                :pass "lksjdfklsjdflkjw"
+                :from "hr@boots.rs"
+                :subject "'Hours 'YYYY-MM"
+                :headers [:id :worked]}]
+
+if `hr@boots.rs` sends an email to the `inbox` folder of `mr.blobby@boots.rs`'s
+email account with the title `Hours 2012-12` and the following contents (notice the underscores):
+
+    washed_dishes; 12
+    cleaned_shoes; 43
+
+the following work logs will be found:
+
+    [{:id "washed_dished" :worked 12}
+     {:id "cleaned_shoes" :worked 43}]
 
 ## Confirmation emails
 
-Each invoice can also be sent via email to the appropriate seller. For this to work, both the seller
-and the buyer must have an :email key set and the credentials must contain a :smtp key with the
-:smtp settings for the email server.
+Each invoice can also be sent via email to the appropriate seller. For this to work, the buyer must
+have an :email key set and a :smtp key with the :smtp settings for the email server should be provided.
 
+     :invoices [{:buyer {(...) :email "accounting@boots.rs"}
+                 (...)
+                 :smtp {:host "smtp.gmail.com"
+                        :user "mr.blobby@buty.sa"
+                        :pass "asd;l;kjsdfkljld"
+                        :ssl true}}]
 
 ## Callbacks
 

@@ -1,4 +1,4 @@
-(defproject invoices "0.1.0-SNAPSHOT"
+(defproject invoices "0.1.1"
   :description "Generate invoices on the basis of a config file"
   :url "https://github.com/mruwnik/invoices"
   :license {:name "EPL-2.0 OR GPL-2.0-or-later WITH Classpath-exception-2.0"

@@ -1,10 +1,10 @@
 (ns invoices.core
   (:require [invoices.pdf :as pdf]
             [invoices.settings :refer [invoices]]
-            [invoices.timesheets :refer [prev-timesheet]]
+            [invoices.timesheets :refer [timesheets]]
             [invoices.time :refer [prev-month last-working-day date-applies?]]
             [invoices.calc :refer [set-price]]
-            [invoices.email :refer [send-email]]
+            [invoices.email :as email]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
             [clojure.java.shell :refer [sh]])
@@ -25,26 +25,28 @@
 (defn run-callbacks [invoice callbacks]
   (doall (map (partial run-callback invoice) callbacks)))
 
-
-(defn render-month [when {seller :seller buyer :buyer items :items creds :credentials font-path :font-path} number]
-  (pdf/render seller buyer
-              (->> items
-                   (filter (partial date-applies? when))
-                   (map (partial set-price (prev-timesheet when creds))))
-              (last-working-day when)
-              (invoice-number when number)
-              font-path))
-
-(defn for-month [when {seller :seller buyer :buyer creds :credentials callbacks :callbacks :as invoice} & [number]]
-  (let [file (-> when (render-month invoice number) (str ".pdf") java.io.File. .getAbsolutePath)]
-    (send-email (:email buyer) (:email seller) creds file)
+(defn for-month [{seller :seller buyer :buyer smtp :smtp callbacks :callbacks :as invoice} when & [number font]]
+  (let [file (pdf/render invoice (last-working-day when) (invoice-number when number))]
+    (email/send-invoice file (:email buyer) smtp)
     (run-callbacks file callbacks)))
 
-(defn get-invoices [nips config]
-  (if (seq nips)
-    (filter #(some #{(-> % :buyer :nip str)} nips) (invoices config))
-    (invoices config)))
+(defn item-price [worklogs item]
+  (-> item :worklog (worklogs) (set-price item)))
 
+(defn calc-prices [invoice worklogs]
+  (update invoice :items (partial map (partial item-price worklogs))))
+
+(defn prepare-invoice [{seller :seller font :font-path} month worklogs invoice]
+  (-> invoice
+      (assoc :seller seller)
+      (assoc :font-path font)
+      (calc-prices worklogs)))
+
+(defn process-invoices [{invoices :invoices :as config} month worklogs]
+  (let [invoices (map (partial prepare-invoice config month worklogs) invoices)]
+    (doseq [[i invoice] (map-indexed vector invoices)]
+      (for-month invoice month (inc i))
+      (println))))
 
 (def cli-options
   [["-n" "--number NUMBER" "Invoice number. In the case of multiple invoices, they will have subsequent numbers"
@@ -78,8 +80,10 @@
       (:help options) (help summary)
       errors (exit -1 (str/join "\n" errors))
       (not= 1 (count arguments)) (exit -1 "No config file provided"))
+
     (println "Generating invoices")
-    (doseq [[i invoice] (map-indexed vector (get-invoices (:company options) (first arguments)))]
-      (for-month (:when options) invoice (+ i (:number options)))
-      (println)))
+    (let [month (java.time.LocalDate/now)
+          config (-> "config.edn" (invoices month))
+          worklogs (timesheets month (:worklogs config))]
+      (process-invoices config month worklogs)))
   (shutdown-agents))
