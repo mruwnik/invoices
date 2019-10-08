@@ -40,8 +40,8 @@ See `resources/config.edn` for an example configuration.
  * :name    - (required) the name of the seller, e.g. "Mr. Blobby"
  * :address - (required) the address of the seller, e.g. "ul. Szeroka 12, 12-345, Buty"
  * :nip     - (required) the NIP of the seller, e.g. 1234567890
- * :account - (required) the number of the account to which the payment should go, e.g. "12 4321 8765 1000 0000 1222 3212"
- * :bank    - (required) the name of the bank in which the account is held, e.g. "Piggy bank"
+ * :account - (optional) the number of the account to which the payment should go, e.g. "12 4321 8765 1000 0000 1222 3212"
+ * :bank    - (optional) the name of the bank in which the account is held, e.g. "Piggy bank"
  * :phone   - (optional) the phone number of the seller 555333111
  * :team    - (optional) a team name, to be prepended to the name of the resulting pdf, e.g. "the A team"
 
