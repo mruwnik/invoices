@@ -57,7 +57,7 @@
     :default 1
     :parse-fn #(Integer/parseInt %)]
    ["-w" "--when DATE" "The month for which to generate the invoice"
-    :default (java.time.LocalDate/now)
+    :default (-> (java.time.LocalDate/now) (.minusMonths 1))
     :parse-fn #(java.time.LocalDate/parse %)]
    ;; A non-idempotent option (:default is applied first)
    ["-c" "--company NIP" "companies for which to generate invoices. All, if not provided"

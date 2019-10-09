@@ -30,8 +30,8 @@ optional font info and optional worklogs info, e.g.:
      :worklogs [(...)]}
 
 
-`:font-path` should be the path to a font file, e.g. "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
-See `resources/config.edn` for an example configuration.
+`:font-path` should be the path to a font file, e.g. `"/usr/share/fonts/truetype/freefont/FreeSans.ttf"`
+See [`resources/config.edn`](https://github.com/mruwnik/invoices/blob/master/resources/config.edn) for an example configuration.
 
  ### Seller
 

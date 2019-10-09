@@ -56,20 +56,20 @@
   (->> content
        str/split-lines
        (remove str/blank?)
-       (map #(str/split % #"[\s;]"))))
+       (map #(str/split % #"[\s;]+"))))
 
 (defn zip-item [headers cell]
   (into (sorted-map) (map vector headers cell)))
 
-(defn parse-float [s]
-  (Float. (re-find  #"[\d\.]+" s )))
+(defn parse-double [s]
+  (Double. (re-find  #"-?[\d\.]+" s )))
 
 (defn extract-items [headers message]
   (->> message
        mess/get-content
        split-cells
        (map (partial zip-item headers))
-       (map #(update % :worked parse-float))))
+       (map #(update % :worked parse-double))))
 
 (defn get-worklogs
   "Get all worklogs for the given month from the given imap server."
