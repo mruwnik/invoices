@@ -27,14 +27,17 @@
 
 (defn for-month [{seller :seller buyer :buyer smtp :smtp callbacks :callbacks :as invoice} when & [number font]]
   (let [file (pdf/render invoice (last-working-day when) (invoice-number when number))]
-    (email/send-invoice file (:email buyer) smtp)
+    ;; (email/send-invoice file (:email buyer) smtp)
     (run-callbacks file callbacks)))
 
 (defn item-price [worklogs item]
   (-> item :worklog (worklogs) (set-price item)))
 
 (defn calc-prices [invoice worklogs]
-  (update invoice :items (partial map (partial item-price worklogs))))
+  (->> invoice :items
+       (map (partial item-price worklogs))
+       (remove (comp nil? :netto))
+       (assoc invoice :items)))
 
 (defn prepare-invoice [{seller :seller font :font-path} month worklogs invoice]
   (-> invoice
@@ -54,7 +57,7 @@
     :default 1
     :parse-fn #(Integer/parseInt %)]
    ["-w" "--when DATE" "The month for which to generate the invoice"
-    :default (-> (java.time.LocalDate/now) prev-month)
+    :default (java.time.LocalDate/now)
     :parse-fn #(java.time.LocalDate/parse %)]
    ;; A non-idempotent option (:default is applied first)
    ["-c" "--company NIP" "companies for which to generate invoices. All, if not provided"
@@ -82,9 +85,9 @@
       errors (exit -1 (str/join "\n" errors))
       (not= 1 (count arguments)) (exit -1 "No config file provided"))
 
-    (println "Generating invoices")
-    (let [month (java.time.LocalDate/now)
-          config (-> "config.edn" (invoices month))
+    (println "Generating invoices" )
+    (let [month (:when options)
+          config (-> (first arguments) (invoices month))
           worklogs (timesheets month (:worklogs config))]
       (process-invoices config month worklogs)))
   (shutdown-agents))

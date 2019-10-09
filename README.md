@@ -72,7 +72,8 @@ item is VAT free), :to (the date from which this item is valid), :from (the date
 The price can be provided in one of the following ways:
 
  * :netto            - is a set price and will be displayed as provided
- * :hourly           - is an hourly price - JIRA will be queried in order to work out how many hours should be billed
+ * :hourly           - is an hourly price - worklogs will be queried in order to work out how many hours should be billed.
+                       If no worklog could be found (or its :worked is nil), this item will be skipped.
  * :base + :per-day  - in the case of a variable number of hours worked. :base provides the amount that would be paid
                        if `<number of hours worked> == <number of hours in the current month if full time> / per-day`.
                        In the case of someone working full time, :per-day would be 8, and if the number of hours worked
@@ -81,9 +82,12 @@ The price can be provided in one of the following ways:
                        had worked exactly half the number of working hours in a given month, then the price will also
                        be :base. Otherwise the final price will be scaled accordingly. This is pretty much equivalent
                        to working out what the hourly rate should be in a given month and multiplying it by the number
-                       of hours worked in that month
+                       of hours worked in that month. If no `:worked` value can be found (or if it's nil), this item
+                       will be skipped.
  * :function         - an S-expression describing how to calculate the net value. Only numbers, basic mathematical
                        operations (+, -, /, *) and timesheet specific variables are supported (:worked, :required).
+                       If a timesheet variable is used, but no such value can be found in the timesheet, an exception
+                       will be raised.
 
 If the price is to be calculated on the basis of a worklog, add a `:worklog` key
 and make sure the `:worklogs` section has an item that can be used to access the worklog.

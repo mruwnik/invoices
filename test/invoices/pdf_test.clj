@@ -42,10 +42,25 @@
     (is (nil? (format-notes [])))
     (is (nil? (format-notes nil)))))
 
+(deftest test-month-name
+  (testing "Check whether the month names are correctly returned"
+    (doseq [[i name] (rest (map-indexed vector month-names))]
+      (is (= (month-name (str "2012/" i "/02")) name)))))
+
+(deftest test-title-base
+  (testing "Check that :title is used if available"
+    (is (= (title-base {:seller {:team "A" :name "bla"} :title "title"}) "title"))
+    (is (= (title-base {:title "title"}) "title")))
+  (testing "Check that the title is made from the team and name"
+    (is (= (title-base {:seller {:team "A" :name "bla"}}) "A_bla"))
+    (is (= (title-base {:seller {:name "bla"}}) "bla"))
+    (is (= (title-base {:seller {:team "A"}}) "A"))
+    (is (= (title-base {:seller {}}) ""))))
+
 (deftest test-get-title
   (testing "Check whether getting titles works"
-    (is (= (get-title nil "mr blobby" "2019/02/11") "mr_blobby_luty_2019_02_11"))
-    (is (= (get-title "asd" "mr blobby" "2019/02/11") "asd_mr_blobby_luty_2019_02_11"))))
+    (is (= (get-title {:title "mr blobby"} "2019/02/11") "mr_blobby_luty_2019_02_11"))
+    (is (= (get-title {:seller {:team "asd" :name "mr blobby"}} "2019/02/11") "asd_mr_blobby_luty_2019_02_11"))))
 
 (deftest test-get-pdf
   (testing "Check whether generating pdf bodies works"

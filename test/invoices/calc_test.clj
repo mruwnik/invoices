@@ -69,14 +69,27 @@
     (is (= (round (calc-part-time {:worked 22 :required 24} {:base 10 :per-day 4})) 18.33))
 
     ; 8h per day, 10 per month if all hours done, the person did all required hours
-    (is (= (round (calc-part-time {:worked 24 :required 24} {:base 10 :per-day 8})) 10.0))))
+    (is (= (round (calc-part-time {:worked 24 :required 24} {:base 10 :per-day 8})) 10.0)))
 
+  (testing "Check whether nil is returned if :worked or :required missing are nil"
+    (is (nil? (calc-part-time {:worked nil :required 24} {:base 10 :per-day 8})))
+    (is (nil? (calc-part-time {:worked 24 :required nil} {:base 10 :per-day 8})))
+    (is (nil? (calc-part-time {:worked nil :required nil} {:base 10 :per-day 8}))))
+
+  (testing "Check whether nil is returned if :worked or :required missing"
+    (is (nil? (calc-part-time {:required 24} {:base 10 :per-day 8})))
+    (is (nil? (calc-part-time {:worked 24} {:base 10 :per-day 8})))
+    (is (nil? (calc-part-time {} {:base 10 :per-day 8})))))
 
 (deftest test-calc-hourly
   (testing "Check whether calculating hourly rates works"
     (is (= (calc-hourly {:worked 12} {:hourly 10}) 120))
     (is (= (calc-hourly {:worked 12.5} {:hourly 10}) 125.0))
-    (is (= (calc-hourly {:worked 12} {:hourly 10.99}) 131.88))))
+    (is (= (calc-hourly {:worked 12} {:hourly 10.99}) 131.88)))
+
+  (testing "nil is returned when no :worked provided"
+    (is (nil? (calc-hourly {:worked nil} {:hourly 10})))
+    (is (nil? (calc-hourly {} {:hourly 10})))))
 
 
 (deftest test-calc-custom

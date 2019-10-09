@@ -19,15 +19,15 @@
     :else func))
 
 (defn calc-part-time [{worked :worked total :required} {base :base per-day :per-day}]
-  (let [hourly (/ (* base 8) (* total per-day))]
-    (float (* hourly worked))))
+  (when (and worked total)
+    (let [hourly (/ (* base 8) (* total per-day))]
+      (float (* hourly worked)))))
 
 (defn calc-hourly [{worked :worked} {hourly :hourly}]
-    (* worked hourly))
+  (when worked (* worked hourly)))
 
 (defn calc-custom [worked {function :function}]
   (parse-custom worked function))
-
 
 (defn set-price
   "Set the net price for the given item, calculating it from a worklog if applicable."

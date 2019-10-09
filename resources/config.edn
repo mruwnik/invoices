@@ -14,20 +14,24 @@
                     {:vat 21 :hourly 43.12 :title "Usługa szewska" :worklog :from-jira}
                     {:netto 321.45 :title "Usługa szewska bez VAT"}
                     {:netto 321.45 :title "Usługa szewska zwolniona z VAT" :notes ["Podstawa zwolnienia z VAT: art. 113 ust. 1 i 9 Ustawa o VAT"]}
-                    {:vat 23 :function (* :worked (+ 1 2 3 (- 23 13))) :title "Pucowania obuwia"}
-                    {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą"}]
-             :smtp {:host "smtp.gmail.com" :user "mr.blobby@buty.sa" :pass "asd;l;kjsdfkljld" :ssl true}}]
- :worklogs [{:type :jira
-             :ids [:from-jira]
-             :tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
-             :jira-token "qypaAsdFwASasEddDDddASdC"
-             :jira-user "mr.blobby@boots.rs"}
-            {:type :imap
-             :ids [:item1 :item2]
-             :folder "inbox"
-             :host "imap.gmail.com"
-             :user "mr.blobby@boots.rs"
-             :pass "lksjdfklsjdflkjw"
-             :from "hr@boots.rs"
-             :subject "'Hours 'YYYY-MM"
-             :headers [:id :worked]}]}
+                    {:vat 23 :function (* 23 (+ 1 2 3 (- 23 13))) :title "Pucowania obuwia - stały koszt"}
+                    ;; {:vat 23 :function (* :worked (+ 1 2 3 (- 23 13))) :title "Pucowania obuwia" :worklog :item1} ; this will cause an error if no :item1 worklog can be found
+                    {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą" :worklog :item2}]
+             ;; :smtp {:host "smtp.gmail.com" :user "mr.blobby@buty.sa" :pass "asd;l;kjsdfkljld" :ssl true}
+             }]
+ :worklogs [
+            ;; {:type :jira
+            ;;  :ids [:from-jira]
+            ;;  :tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
+            ;;  :jira-token "qypaAsdFwASasEddDDddASdC"
+            ;;  :jira-user "mr.blobby@boots.rs"}
+            ;; {:type :imap
+            ;;  :ids [:item1 :item2]
+            ;;  :folder "inbox"
+            ;;  :host "imap.gmail.com"
+            ;;  :user "mr.blobby@boots.rs"
+            ;;  :pass "lksjdfklsjdflkjw"
+            ;;  :from "hr@boots.rs"
+            ;;  :subject "'Hours 'YYYY-MM"
+            ;;  :headers [:id :worked]}
+            ]}
