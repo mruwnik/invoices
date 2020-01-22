@@ -8,16 +8,18 @@
             [clojure-mail.message :refer (read-message) :as mess]))
 
 (defn send-invoice [invoice to {from :user :as smtp}]
-  (when (and (not-any? nil? [to from smtp invoice])
-             (->>
-              (send-message smtp {:from from
-                                  :to [to]
-                                  :subject (.getName invoice)
-                                  :body [{:type :attachment
-                                          :content (.getAbsolutePath invoice)
-                                          :content-type "application/pdf"}]})
-              :error (= :SUCCESS)))
-    (println " - email sent to " to)))
+  (if (sequential? to)
+    (doseq [address to] (send-invoice invoice address smtp))
+    (when (and (not-any? nil? [to from smtp invoice])
+               (->>
+                (send-message smtp {:from from
+                                    :to [to]
+                                    :subject (.getName invoice)
+                                    :body [{:type :attachment
+                                            :content (.getAbsolutePath invoice)
+                                            :content-type "application/pdf"}]})
+                :error (= :SUCCESS)))
+      (println " - email sent to " to))))
 
 (defn server-find-messages
   "Find all messages in the given folder, filtering them by subject and sender (use nil to ignore)."

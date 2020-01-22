@@ -1,6 +1,6 @@
 (ns invoices.pdf
   (:require [clj-pdf.core :refer [pdf]]
-            [invoices.time :refer [skip-days-off last-working-day]]
+            [invoices.time :refer [skip-days-off]]
             [invoices.calc :refer [brutto vat round]]
             [clojure.string :as str])
   (:import [java.awt Font]))

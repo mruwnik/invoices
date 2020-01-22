@@ -26,8 +26,8 @@
   (doall (map (partial run-callback invoice) callbacks)))
 
 (defn for-month [{seller :seller buyer :buyer smtp :smtp callbacks :callbacks :as invoice} when & [number font]]
-  (let [file (pdf/render invoice (last-working-day when) (invoice-number when number))]
-    ;; (email/send-invoice file (:email buyer) smtp)
+  (let [file (pdf/render invoice when (invoice-number when number))]
+    (email/send-invoice file (:email buyer) smtp)
     (run-callbacks file callbacks)))
 
 (defn item-price [worklogs item]
@@ -48,7 +48,7 @@
 
 (defn process-invoices [{invoices :invoices :as config} month worklogs]
   (let [invoices (map (partial prepare-invoice config month worklogs) invoices)]
-    (doseq [[i invoice] (map-indexed vector invoices)]
+    (doseq [[i invoice] (->> invoices (filter #(-> % :items seq)) (map-indexed vector))]
       (for-month invoice month (inc i))
       (println))))
 
@@ -56,8 +56,8 @@
   [["-n" "--number NUMBER" "Invoice number. In the case of multiple invoices, they will have subsequent numbers"
     :default 1
     :parse-fn #(Integer/parseInt %)]
-   ["-w" "--when DATE" "The month for which to generate the invoice"
-    :default (-> (java.time.LocalDate/now) (.minusMonths 1))
+   ["-w" "--when DATE" "The day for which to generate the invoice"
+    :default (-> (java.time.LocalDate/now) (.minusMonths 1) last-working-day)
     :parse-fn #(java.time.LocalDate/parse %)]
    ;; A non-idempotent option (:default is applied first)
    ["-c" "--company NIP" "companies for which to generate invoices. All, if not provided"

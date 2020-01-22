@@ -15,7 +15,7 @@ the JIRA credentials with correct values).
 The following options are available:
 
     -n, --number   Invoice number. In the case of multiple invoices, they will have subsequent numbers
-    -w, --when     The month for which to generate the invoice
+    -w, --when     The date for which to generate the invoice
     -c, --company  The NIPs of companies for which to generate invoices. If not provided, all the companies will be used
     -h, --help     Display a help message
 
@@ -125,6 +125,7 @@ worklog entry like the following:
 
     :worklogs [{:type :jira
                 :ids [:from-jira]
+                :month-offset -2  ; Can be used to get a different month than the currently processed one. In this case, 2 months previous
                 :tempo-token "5zq7zF9LADefEGAs12eDDas3FDttiM"
                 :jira-token "qypaAsdFwASasEddDDddASdC"
                 :jira-user "mr.blobby@boots.rs"}]

@@ -31,10 +31,11 @@
     (jira-timesheet (me credentials) (prev-month when) credentials)))
 
 
-(defn get-timesheet [month {type :type :as creds}]
-  (condp = type
-    :jira (jira-timesheet (me creds) month creds)
-    :imap (email/get-worklogs month creds)))
+(defn get-timesheet [month {type :type offset :month-offset :as creds}]
+  (let [month (-> month (.plusMonths (or offset 0)))]
+    (condp = type
+      :jira (jira-timesheet (me creds) month creds)
+      :imap (email/get-worklogs month creds))))
 
 (defn timesheets
   "Return timesheets for the given month from the given worklogs."
