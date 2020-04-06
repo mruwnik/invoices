@@ -7,6 +7,7 @@
   (if-not vat-level 0 (* netto (/ vat-level 100))))
 
 (defn brutto [{netto :netto :as item}] (round (+ netto (vat item))))
+(defn netto [{brutto :brutto vat :vat}] (/ (* brutto 100) (+ 100 vat)))
 
 (defn parse-custom
   "Parse the given function definition and execute it with the given `worklog`."
@@ -36,5 +37,6 @@
     (contains? item :function) (assoc item :netto (calc-custom worked item))
     (contains? item :hourly) (assoc item :netto (calc-hourly worked item))
     (contains? item :base) (assoc item :netto (calc-part-time worked item))
+    (contains? item :brutto) (assoc item :netto (netto item))
     (not (contains? item :netto)) (assoc item :netto 0)
     :else item))

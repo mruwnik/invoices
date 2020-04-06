@@ -72,6 +72,7 @@ item is VAT free), :to (the date from which this item is valid), :from (the date
 The price can be provided in one of the following ways:
 
  * :netto            - is a set price and will be displayed as provided
+ * :brutto           - is a set price and will be first scaled down to netto
  * :hourly           - is an hourly price - worklogs will be queried in order to work out how many hours should be billed.
                        If no worklog could be found (or its :worked is nil), this item will be skipped.
  * :base + :per-day  - in the case of a variable number of hours worked. :base provides the amount that would be paid
