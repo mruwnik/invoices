@@ -30,12 +30,18 @@
   (clojure.core/when (:jira-user credentials)
     (jira-timesheet (me credentials) (prev-month when) credentials)))
 
+(defn hours-from-list [date {:keys [ids worklogs]}]
+  (let [month (-> date (.toString) (subs  0 7))
+        {:keys [count unit]} (get worklogs month)
+        worklog {:worked (and count (* count ({:hour 1 :day 8} unit 1)))}]
+    (map (partial assoc worklog :id) ids)))
 
 (defn get-timesheet [month {type :type offset :month-offset :as creds}]
   (let [month (-> month (.plusMonths (or offset 0)))]
     (condp = type
       :jira (jira-timesheet (me creds) month creds)
-      :imap (email/get-worklogs month creds))))
+      :imap (email/get-worklogs month creds)
+      :list (hours-from-list month creds))))
 
 (defn timesheets
   "Return timesheets for the given month from the given worklogs."

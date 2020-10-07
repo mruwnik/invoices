@@ -66,9 +66,9 @@ The buyer can have the following keys
 
 ### Items
 
-The list of items should contain maps with a required :title, optional :vat (if not provided it is assumed that
-item is VAT free), :to (the date from which this item is valid), :from (the date till which this item is valid),
-:notes (a list of extra notes to be added at the bottom of the invoice) and a key providing the cost of the item.
+The list of items should contain maps with a required `:title`, optional `:vat` (if not provided it is assumed that
+item is VAT free), `:to` (the date from which this item is valid), `:from` (the date till which this item is valid),
+`:notes` (a list of extra notes to be added at the bottom of the invoice) and a key providing the cost of the item.
 The price can be provided in one of the following ways:
 
  * :netto            - is a set price and will be displayed as provided
@@ -116,6 +116,19 @@ following sections. Apart from provider specific values, each credentials map
 must contain a `:type` key that describes the provider, and a `:ids` list, which
 should contain all worklog ids that can be found in the given worklog. These ids
 are used to link worklog values with items via the `:worklog` key of items.
+
+#### Simple lists
+
+This is the basic worklog, i.e. a list of months with the amount worked provided (hours by default).
+The unit can be changed via the `unit` key and can be one of `:hour` or `:day`. Below is an example:
+
+    :worklogs [{:type :list
+                :ids [:cows-R-us]
+                :worklogs {"2020-09" {:count 12 :unit :day}
+                           "2020-10" {:count 12 :unit :day}
+                           "2020-11" {:count 54 :unit :hour}
+                           "2020-12" {:count 5 :unit :day}
+                           "2021-02" {:count 20 :unit :day}}}]
 
 #### Jira
 
@@ -174,6 +187,8 @@ have an :email key set and a :smtp key with the :smtp settings for the email ser
                         :user "mr.blobby@buty.sa"
                         :pass "asd;l;kjsdfkljld"
                         :ssl true}}]
+
+The `:email` value can be a string (i.e. a single email address) or a list of strings.
 
 ## Callbacks
 
