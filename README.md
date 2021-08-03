@@ -89,6 +89,8 @@ The price can be provided in one of the following ways:
                        operations (+, -, /, *) and timesheet specific variables are supported (:worked, :required).
                        If a timesheet variable is used, but no such value can be found in the timesheet, an exception
                        will be raised.
+ * :from               - an ISO date specifying the date from which this item should be used in calculating invoices (any invoices generated for dates before this value will ignore this item)
+ * :to               - an ISO date specifying the date up to which this item should be used in calculating invoices (any invoices generated for dates after this value will ignore this item)
 
 If the price is to be calculated on the basis of a worklog, add a `:worklog` key
 and make sure the `:worklogs` section has an item that can be used to access the worklog.
