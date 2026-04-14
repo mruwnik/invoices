@@ -7,6 +7,7 @@
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
             [clojure.test :refer [deftest is testing are]]
+            [invoices.ksef.auth :as auth]
             [invoices.ksef.crypto :as crypto]
             [invoices.ksef.session :as session]))
 
@@ -325,3 +326,96 @@
                                                         :invoice-xml invoice-xml
                                                         :poll-interval-ms 1
                                                         :poll-timeout-ms 5000})))))))
+
+;; ---------- composed auth → session (Renarin mock-depth rule) ----------
+
+(deftest auth-then-session-composition-test
+  (testing "auth/authenticate → session/submit-invoice wired through a single
+            clj-http mock layer — catches bearer-threading and ordering bugs
+            that would be hidden by stubbing out authenticate entirely"
+    (let [invoice-xml "<Faktura>ł</Faktura>"
+          calls (atom [])
+          ;; auth endpoints
+          challenge-url (str base-url "/auth/challenge")
+          certs-url     (str base-url "/security/public-key-certificates")
+          ksef-url      (str base-url "/auth/ksef-token")
+          auth-poll-url (str base-url "/auth/AUTH-REF-1")
+          redeem-url    (str base-url "/auth/token/redeem")
+          ;; session endpoints
+          open-url      (str base-url "/sessions/online")
+          send-url      (str base-url "/sessions/online/SES-7/invoices")
+          close-url     (str base-url "/sessions/online/SES-7/close")
+          sess-poll-url (str base-url "/sessions/SES-7")
+          inv-url       (str base-url "/sessions/SES-7/invoices/INV-5")
+          upo-url       (str base-url "/sessions/SES-7/invoices/INV-5/upo")
+          ksef-num      "5265877635-20250826-0100001AF629-AF"
+          upo-xml       "<UPO signed=\"true\"/>"
+          ;; One cert response shared across auth + session — same endpoint,
+          ;; same fixture, two different usages present.
+          cert-resp (json-body [{:usage ["KsefTokenEncryption"]    :certificate "TOKEN-CERT"}
+                                {:usage ["SymmetricKeyEncryption"] :certificate "SESSION-CERT"}])
+          gets (atom {certs-url     cert-resp
+                      auth-poll-url (json-body {:status {:code 200 :description "OK"}})
+                      sess-poll-url (json-body {:status {:code 200 :description "OK"}
+                                                :upo {:pages [{:referenceNumber "UPO-R"}]}})
+                      inv-url       (json-body {:referenceNumber "INV-5"
+                                                :ksefNumber ksef-num
+                                                :status {:code 200 :description "Sukces"}})
+                      upo-url       {:body upo-xml}})
+          posts (atom {challenge-url (json-body {:challenge "C" :timestampMs 111})
+                       ksef-url      (json-body {:referenceNumber "AUTH-REF-1"
+                                                 :authenticationToken {:token "OP-TOK"}})
+                       redeem-url    (json-body {:accessToken  {:token "ACCESS-COMPOSED"
+                                                                :validUntil "u1"}
+                                                 :refreshToken {:token "R" :validUntil "u2"}})
+                       open-url      (json-body {:referenceNumber "SES-7"})
+                       send-url      (json-body {:referenceNumber "INV-5"})
+                       close-url     {:status 204}})]
+      (with-redefs [http/get  (stub-get gets calls)
+                    http/post (stub-post posts calls)
+                    ;; Crypto is stubbed ONLY so the test doesn't need real
+                    ;; key material — nothing higher in the stack is hidden.
+                    crypto/parse-x509-cert-der (fn [_] ::fake-pk)
+                    crypto/rsa-oaep-sha256-encrypt (fn [_ _] (byte-array [9 9 9]))
+                    crypto/generate-aes-key (fn [] (reify javax.crypto.SecretKey
+                                                     (getEncoded [_] (byte-array 32 (byte 0)))
+                                                     (getAlgorithm [_] "AES")
+                                                     (getFormat [_] "RAW")))
+                    crypto/generate-iv (fn [] (byte-array 16 (byte 0)))
+                    crypto/aes-256-cbc-encrypt (fn [_ _ ^bytes pt] pt)]
+        (let [{:keys [access-token]} (auth/authenticate
+                                       {:base-url base-url
+                                        :nip 6423166047
+                                        :token "ref|ctx|secret"
+                                        :poll-interval-ms 1
+                                        :poll-timeout-ms 5000})
+              result (session/submit-invoice
+                       {:base-url base-url
+                        :access-token access-token
+                        :invoice-xml invoice-xml
+                        :schema :fa-3
+                        :poll-interval-ms 1
+                        :poll-timeout-ms 5000})]
+          (is (= "ACCESS-COMPOSED" access-token))
+          (is (= {:ksef-number ksef-num
+                  :upo-xml upo-xml
+                  :invoice-ref "INV-5"
+                  :session-ref "SES-7"}
+                 result))))
+
+      (testing "all 12 endpoints hit in the documented composition order"
+        (is (= [;; auth dance
+                challenge-url certs-url ksef-url auth-poll-url redeem-url
+                ;; session dance
+                certs-url open-url send-url close-url sess-poll-url inv-url upo-url]
+               (mapv :url @calls))))
+
+      (testing "auth-phase calls use OP-TOK bearer; session-phase calls use ACCESS-COMPOSED"
+        (let [by-url (group-by :url @calls)]
+          ;; auth polling + redeem carry the operation token
+          (is (= "Bearer OP-TOK" (bearer-value (first (get by-url auth-poll-url)))))
+          (is (= "Bearer OP-TOK" (bearer-value (first (get by-url redeem-url)))))
+          ;; session calls carry the minted access token
+          (doseq [u [open-url send-url close-url sess-poll-url inv-url upo-url]]
+            (is (= "Bearer ACCESS-COMPOSED" (bearer-value (first (get by-url u))))
+                (str "session phase should use access token on " u))))))))
