@@ -277,3 +277,32 @@
   (testing "Mixed-VAT invoice validates against FA(3) XSD"
     (let [err (validate-xsd (fa/invoice->fa3-xml mixed-vat-invoice))]
       (is (nil? err) (str "XSD validation failed: " err)))))
+
+(deftest xsd-validator-is-not-a-no-op
+  ;; Regression guard: if someone refactors validate-xsd into a fail-open
+  ;; shell (e.g., catches SAXException too broadly), the positive tests
+  ;; above would still pass. These mutations must surface errors.
+  (let [good (fa/invoice->fa3-xml single-item-invoice)]
+    (testing "removing required P_2 element triggers a validation error"
+      (let [bad (str/replace good #"<a:P_2>[^<]*</a:P_2>" "")]
+        (is (not= good bad) "sanity: mutation actually changed the XML")
+        (let [err (validate-xsd bad)]
+          (is (some? err) "XSD must reject invoice missing P_2")
+          (is (str/includes? (or err "") "cvc-")))))
+    (testing "non-enum KodWaluty value triggers enumeration error"
+      (let [bad (str/replace good
+                             "<a:KodWaluty>PLN</a:KodWaluty>"
+                             "<a:KodWaluty>XYZ</a:KodWaluty>")]
+        (is (not= good bad))
+        (let [err (validate-xsd bad)]
+          (is (some? err) "XSD must reject unknown currency code")
+          (is (str/includes? (or err "") "enumeration")))))))
+
+(deftest polish-characters-roundtrip-and-validate
+  (let [invoice (assoc-in single-item-invoice [:items 0 :title]
+                          "Usługa żółć ąęćłńóśźż")
+        xml (fa/invoice->fa3-xml invoice)]
+    (is (str/includes? xml "żółć ąęćłńóśźż")
+        "Polish characters must be preserved in the emitted XML")
+    (is (nil? (validate-xsd xml))
+        "Polish-character invoice must still validate against the FA(3) XSD")))
