@@ -7,7 +7,11 @@ Generate invoices from a config file
 Use the following to see how it works on the provided sample config (make sure to update
 the JIRA credentials with correct values).
 
-    lein run resources/config.edn
+    clj -M:run resources/config.edn
+
+The project uses `deps.edn` (tools.deps) rather than `project.clj`; there is no
+longer a Leiningen build file. The `:run` alias invokes `invoices.core/-main`
+and the `:test` alias runs the test suite via `clj -X:test`.
 
 
 ## Options
@@ -191,6 +195,87 @@ have an :email key set and a :smtp key with the :smtp settings for the email ser
                         :ssl true}}]
 
 The `:email` value can be a string (i.e. a single email address) or a list of strings.
+
+## KSeF (Polish e-invoicing)
+
+KSeF (Krajowy System e-Faktur) is the Polish Ministry of Finance's national
+e-invoicing system. When an invoice has a `:ksef` key, this tool generates the
+PDF as usual and additionally submits a **FA(3)**-schema XML document to KSeF,
+receiving a permanent numer KSeF and a signed UPO (Urzędowe Poświadczenie
+Odbioru) confirmation. Three environments are supported: `:test`
+(`api-test.ksef.mf.gov.pl`), `:demo` (`api-demo.ksef.mf.gov.pl`) and `:prod`
+(`api.ksef.mf.gov.pl`).
+
+### One-time setup
+
+1. Log in to the KSeF taxpayer panel at [podatki.gov.pl](https://podatki.gov.pl) → KSeF.
+2. Generate a token with permissions `InvoiceRead` + `InvoiceWrite` in the role matching the seller NIP.
+3. Copy the token value somewhere safe — it will be shown once.
+
+### Config shape
+
+Add a `:ksef` map to any invoice that should be submitted:
+
+    :invoices [{:buyer {(...)}
+                :items [(...)]
+                :ksef {:env :test
+                       :nip 6423166047
+                       :token-env "KSEF_TOKEN"
+                       :schema :fa-3}}]
+
+Keys:
+
+ * `:env` — `:test` | `:demo` | `:prod` — which KSeF environment to submit to. Start with `:test` until you have a known-good flow.
+ * `:nip` — the seller's NIP as a number or string. Must match the context of the token.
+ * `:token-env` — the **name** of an environment variable that holds the token. The token itself is NEVER written to `config.edn`; the tool reads it from the environment at runtime. If the env var is unset, submission for that invoice is skipped with a log line (other invoices still process).
+ * `:schema` — `:fa-3`. `:fa-2` is a legacy test-only variant and should not be used for new integrations; stick with FA(3).
+
+Invoices without a `:ksef` key behave exactly as before (PDF only).
+
+### Running
+
+    export KSEF_TOKEN=<your-token>
+    clj -M:run resources/config.edn
+
+For every invoice with a `:ksef` block, the tool will:
+
+1. Generate the PDF as usual.
+2. Build the FA(3) XML and submit it via the KSeF online session API.
+3. Save two sidecar files next to the PDF: `<invoice-title>.ksef.xml` (the document that was sent) and `<invoice-title>.upo.xml` (the UPO returned by KSeF).
+4. Print `" - KSeF accepted: <numer-ksef>"` on success.
+
+If the submission fails for any reason (network, auth, validation, sandbox
+downtime), the failure is logged as `" - KSeF FAILED: <error>"` and the tool
+continues processing the remaining invoices. **The PDF is always generated,
+even when KSeF submission fails** — KSeF is an additive sidecar, never a gate
+on invoice rendering.
+
+### Integration tests
+
+Unit tests mock every HTTP call and run without credentials. There is also an
+end-to-end integration test (`invoices.ksef.integration-test`) that submits a
+real invoice against the TEST sandbox; it self-skips when the required env
+vars are absent, so CI without credentials passes cleanly.
+
+To run it locally, export the three vars and run the test namespace directly:
+
+    export KSEF_TEST_TOKEN=<your-test-token>
+    export KSEF_TEST_NIP=<nip-matching-the-token>
+    export KSEF_TEST_BASE=https://api-test.ksef.mf.gov.pl/v2
+    clj -X:test :nses '[invoices.ksef.integration-test]'
+
+Note that the KSeF sandbox has daily maintenance windows around 16:00–18:00
+Europe/Warsaw; failures during that window are environmental, not bugs.
+
+### Security
+
+The KSeF token is a bearer credential — anyone with the token string can submit
+invoices in your name. Treat it like a password:
+
+ * Keep it in an environment variable or a secrets manager.
+ * Never commit it to git and never put it in `config.edn`.
+ * Rotate it if it may have been exposed.
+ * The tool reads the token into memory for the duration of a submission and never writes it to disk.
 
 ## Callbacks
 
