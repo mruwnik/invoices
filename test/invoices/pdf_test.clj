@@ -124,12 +124,29 @@
             (list :table {:header [{:background-color [216 247 249]} "Lp." [:cell {:colspan 4} "Nazwa"] "Ilość" "Cena netto" "Stawka VAT" "Kwota VAT" "Wartość brutto"], :num-cols 10}
                      (list 1 [:cell {:colspan 4} "Buty kowbojskie"] "1" "123.21" "8%" "9.86" "133.07")
                      (list 2 [:cell {:colspan 4} "Usługa szewska bez VAT"] "1" "321.45" "zw." "0.0" "321.45")
-                     [[:cell {:background-color [84 219 229], :colspan 5, :align :center} "Razem"]
+                     [[:cell {:background-color [84 219 229], :set-border [], :colspan 5, :align :center} "Razem do zapłaty: 454.52 PLN"]
                       [:cell {:background-color [216 247 249]} "2.0"]
                       [:cell {:background-color [216 247 249]} "444.66"]
-                      ""
+                      "wszystkie"
                       [:cell {:background-color [216 247 249]} "9.86"]
-                      [:cell {:background-color [216 247 249]} "454.52"]])])))))
+                      [:cell {:background-color [216 247 249]} "454.52"]]
+                     [[:cell {:background-color [84 219 229], :set-border [], :colspan 5, :align :center} ""]
+                      [:cell {:background-color [216 247 249]} "1.0"]
+                      [:cell {:background-color [216 247 249]} "321.45"]
+                      "zw."
+                      [:cell {:background-color [216 247 249]} "0.0"]
+                      [:cell {:background-color [216 247 249]} "321.45"]]
+                     [[:cell {:background-color [84 219 229], :set-border [], :colspan 5, :align :center} ""]
+                      [:cell {:background-color [216 247 249]} "1.0"]
+                      [:cell {:background-color [216 247 249]} "123.21"]
+                      "8%"
+                      [:cell {:background-color [216 247 249]} "9.86"]
+                      [:cell {:background-color [216 247 249]} "133.07"]])
+            [:table {:border false, :padding 0, :spacing 0, :num-cols 6}
+             [[:cell.param {:align :right} "Zapłacono:  "]
+              [:cell {:colspan 2} "0.00 PLN"]
+              [:cell.param {:align :right} "Do zapłaty:  "]
+              [:cell {:colspan 2} "454.52 PLN"]]]])))))
 
 (deftest test-add-notes
   (testing "Check whether notes get correctly added"
