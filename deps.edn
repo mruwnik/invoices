@@ -2,8 +2,7 @@
 
  :deps {org.clojure/clojure {:mvn/version "1.10.0"}
         org.clojure/tools.cli {:mvn/version "0.4.2"}
-        com.draines/postal {:mvn/version "2.0.3"}
-        io.forward/clojure-mail {:mvn/version "1.0.8"}
+        com.sun.mail/jakarta.mail {:mvn/version "2.0.1"}
         commons-net/commons-net {:mvn/version "3.6"}
         clj-http/clj-http {:mvn/version "3.10.0"}
         cheshire/cheshire {:mvn/version "5.9.0"}
