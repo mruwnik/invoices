@@ -26,14 +26,14 @@
 (def ^:private user-agent "invoices-clj/ksef")
 
 (defn- json-get [url opts]
-  (http/get url (merge {:as :json :accept :json :throw-exceptions true
+  (http/get url (merge {:as :json-strict :accept :json :throw-exceptions true
                         :headers {"User-Agent" user-agent}}
                        opts)))
 
 (defn- json-post [url body opts]
   (http/post url (merge {:content-type :json
                          :accept :json
-                         :as :json
+                         :as :json-strict
                          :throw-exceptions true
                          :headers {"User-Agent" user-agent}
                          :body (json/generate-string body)}
