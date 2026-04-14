@@ -2,7 +2,10 @@
   (:require [clojure.test :refer [deftest is are testing]]
             [invoices.ksef.crypto :as crypto])
   (:import [java.security KeyPairGenerator]
-           [java.security.interfaces RSAPublicKey]))
+           [java.security.interfaces RSAPublicKey]
+           [java.security.spec MGF1ParameterSpec]
+           [javax.crypto Cipher]
+           [javax.crypto.spec OAEPParameterSpec PSource$PSpecified]))
 
 (defn- rsa-keypair []
   (let [kpg (KeyPairGenerator/getInstance "RSA")]
@@ -32,6 +35,26 @@
         (is (not= (seq c1) (seq c2)))
         (is (= (seq pt) (seq (crypto/rsa-oaep-sha256-decrypt priv c1))))
         (is (= (seq pt) (seq (crypto/rsa-oaep-sha256-decrypt priv c2))))))))
+
+(defn- decrypt-with-mgf1 [priv ^bytes ciphertext mgf1-spec]
+  (let [cipher (Cipher/getInstance "RSA/ECB/OAEPWithSHA-256AndMGF1Padding")
+        spec (OAEPParameterSpec. "SHA-256" "MGF1" mgf1-spec PSource$PSpecified/DEFAULT)]
+    (.init cipher Cipher/DECRYPT_MODE priv spec)
+    (.doFinal cipher ciphertext)))
+
+(deftest rsa-oaep-uses-mgf1-sha256-not-sha1
+  (testing "KSeF-rejects-silently regression guard: ciphertext MUST decrypt
+    under MGF1-SHA256 and MUST NOT decrypt under MGF1-SHA1. If this fails,
+    someone dropped the explicit OAEPParameterSpec and the JDK fell back
+    to its default MGF1-SHA1 pairing."
+    (let [kp (rsa-keypair)
+          pub (.getPublic kp)
+          priv (.getPrivate kp)
+          ct (crypto/rsa-oaep-sha256-encrypt pub (utf8 "ksef-token|1712345678901"))]
+      (is (= "ksef-token|1712345678901"
+             (->str (decrypt-with-mgf1 priv ct MGF1ParameterSpec/SHA256))))
+      (is (thrown? Exception
+                   (decrypt-with-mgf1 priv ct MGF1ParameterSpec/SHA1))))))
 
 (deftest aes-256-cbc-round-trip
   (let [key (crypto/generate-aes-key)
