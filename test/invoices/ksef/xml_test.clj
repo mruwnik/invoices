@@ -448,6 +448,74 @@
       (is (= "1246.00" (text (child fa-el "P_15")))
           "P_15 = 200 + 46 (VAT) + 1000 (np, no VAT)"))))
 
+;; Three-bucket arithmetic stress test (23 + :np + :zw).
+;; Catches the bug class Renarin flagged: if bucket-routing accidentally
+;; dupes a net amount into TWO buckets (e.g. :np → both P_13_8 AND P_13_6_1),
+;; local XSD validation still passes because both buckets accept TKwotowy,
+;; but the KSeF server rejects because P_15 ≠ sum(P_13_*). Mocks can't see
+;; this — only an exact-value + exact-zero assertion catches it.
+(def np-three-bucket-invoice
+  "Spans P_13_1 (23%), P_13_7 (:zw), and P_13_8 (:np). Integer netti so the
+  arithmetic on P_15 is unambiguous: 100 + 50 + 200 + 23 (VAT) = 373.00"
+  {:seller sample-seller
+   :buyer  sample-buyer
+   :number "MIX3-1/4/2026"
+   :date   (LocalDate/of 2026 4 14)
+   :items  [{:vat 23  :netto 100.00M :title "Krajowa 23%"}
+            {:vat :np :netto 200.00M :title "Poza RP (art. 28b)"}
+            {:vat :zw :netto 50.00M  :title "Zwolniona krajowa"}]})
+
+(deftest three-bucket-arithmetic-and-p15-roundtrip
+  (testing "Mixed 23+np+zw invoice: each bucket holds exactly its item's net,
+           every unused bucket is absent, and P_15 equals the full round-trip sum"
+    (let [xml (fa/invoice->fa3-xml np-three-bucket-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          present (fn [name] (text (child fa-el name)))]
+
+      ;; Positive: each item in its own bucket, exact value.
+      (is (= "100.00" (present "P_13_1"))
+          "23% item net must land exclusively in P_13_1")
+      (is (= "23.00"  (present "P_14_1"))
+          "23% VAT must be exactly 100 * 0.23 = 23.00")
+      (is (= "50.00"  (present "P_13_7"))
+          ":zw item net must land exclusively in P_13_7")
+      (is (= "200.00" (present "P_13_8"))
+          ":np item net must land exclusively in P_13_8")
+
+      ;; Negative: every bucket that must NOT fire for this item set.
+      ;; Any non-zero value here would indicate a duplication bug.
+      (doseq [absent ["P_13_2"   ; red1 (8%)
+                      "P_13_3"   ; red2 (5%)
+                      "P_13_4"   ; taxi (4%)
+                      "P_13_5"   ; special rate
+                      "P_13_6_1" ; domestic 0% — NOT where np goes
+                      "P_13_6_2" ; WDT goods
+                      "P_13_6_3" ; export of goods
+                      "P_13_9"   ; np II — art. 100 ust. 1 pkt 4
+                      "P_14_2" "P_14_3" "P_14_4" "P_14_5"
+                      "P_14_8"   ; no Polish VAT owed on np
+                      "P_14_9"]] ; no Polish VAT owed on np-eu
+        (is (nil? (child fa-el absent))
+            (str "FAIL-LOUD: " absent " must be absent for a "
+                 "23+:np+:zw invoice; any value here indicates a "
+                 "bucket-routing duplication bug")))
+
+      ;; The round-trip check: P_15 == sum of every net + every VAT emitted.
+      ;; This is the server-side cross-check that local XSD cannot catch.
+      (is (= "373.00" (present "P_15"))
+          "P_15 = P_13_1 + P_14_1 + P_13_7 + P_13_8 = 100 + 23 + 50 + 200 = 373.00")
+
+      ;; And the KSeF server's own invariant, spelled out so a regression is loud.
+      (let [net-sum (+ 100.00 50.00 200.00)
+            vat-sum (+ 23.00 0.0 0.0)
+            expected (+ net-sum vat-sum)]
+        (is (= (format "%.2f" expected) (present "P_15"))
+            "Computed P_15 must equal sum(netti) + sum(vat) across ALL buckets"))
+
+      ;; Sanity: XSD still validates (local check — necessary but insufficient).
+      (is (nil? (validate-xsd xml))
+          "Three-bucket invoice must validate against the real FA(3) XSD"))))
+
 (deftest currency-defaults-to-pln
   (let [xml (fa/invoice->fa3-xml single-item-invoice)
         fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
