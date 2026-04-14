@@ -18,6 +18,10 @@
                     ;; {:vat 23 :function (* :worked (+ 1 2 3 (- 23 13))) :title "Pucowania obuwia" :worklog :item1} ; this will cause an error if no :item1 worklog can be found
                     {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą" :worklog :item2}]
              ;; :smtp {:host "smtp.gmail.com" :user "mr.blobby@buty.sa" :pass "asd;l;kjsdfkljld" :ssl true}
+             ;; :ksef {:env :test                ; :test | :demo | :prod
+             ;;        :nip 6423166047           ; seller NIP (the context for the submission)
+             ;;        :token-env "KSEF_TOKEN"   ; name of the env var holding the secret
+             ;;        :schema :fa-3}
              }]
  :worklogs [
             ;; {:type :jira

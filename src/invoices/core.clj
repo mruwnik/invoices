@@ -5,6 +5,7 @@
             [invoices.time :refer [prev-month last-working-day date-applies?]]
             [invoices.calc :refer [set-price]]
             [invoices.email :as email]
+            [invoices.ksef :as ksef]
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.string :as str]
             [clojure.java.shell :refer [sh]])
@@ -25,10 +26,13 @@
 (defn run-callbacks [invoice callbacks]
   (doall (map (partial run-callback invoice) callbacks)))
 
-(defn for-month [{seller :seller buyer :buyer smtp :smtp callbacks :callbacks :as invoice} when & [number font]]
-  (let [file (pdf/render invoice when (invoice-number when number))]
+(defn for-month [{seller :seller buyer :buyer smtp :smtp callbacks :callbacks :as invoice} date & [number font]]
+  (let [inv-number (invoice-number date number)
+        file (pdf/render invoice date inv-number)]
     (email/send-invoice file (:email buyer) smtp)
-    (run-callbacks file callbacks)))
+    (run-callbacks file callbacks)
+    (when (:ksef invoice)
+      (ksef/submit-to-ksef (assoc invoice :date date :number inv-number) file))))
 
 (defn item-price [worklogs item]
   (-> item :worklog (worklogs) (set-price item)))
