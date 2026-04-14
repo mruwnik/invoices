@@ -306,3 +306,300 @@
         "Polish characters must be preserved in the emitted XML")
     (is (nil? (validate-xsd xml))
         "Polish-character invoice must still validate against the FA(3) XSD")))
+
+;; ============================================================
+;; VAT-excluded (np / np-eu) compliance tests
+;; Task 5c1f5d2a — Polish seller → non-EU buyer for services, art. 28b.
+;; ============================================================
+
+(def us-buyer
+  {:name "Acme Corp"
+   :address "123 Main Street, Springfield IL 62701, US"
+   :country "US"
+   :nip "US-ACME-001"})
+
+(def de-buyer
+  {:name "Bundenbach GmbH"
+   :address "Unterstrasse 12, 10115 Berlin, DE"
+   :country "DE"
+   :nip "DE123456789"})
+
+(def np-single-item-invoice
+  "The user's canonical 'Polish contractor bills US company for software
+  services' case: single item, :vat :np, defaults to PLN."
+  {:seller sample-seller
+   :buyer  us-buyer
+   :number "NP-1/4/2026"
+   :date   (LocalDate/of 2026 4 14)
+   :items  [{:vat :np :netto 10000.00M :title "Software development"}]})
+
+(def np-eu-single-item-invoice
+  "art. 100 ust. 1 pkt 4 case: Polish seller → EU-VAT-registered buyer,
+  service on VAT-UE recapitulative statement."
+  {:seller sample-seller
+   :buyer  de-buyer
+   :number "NP-EU-1/4/2026"
+   :date   (LocalDate/of 2026 4 14)
+   :items  [{:vat :np-eu :netto 5000.00M :title "Consulting (EU B2B)"}]})
+
+(def np-mixed-invoice
+  "Mixed invoice: one :vat 23 item + one :vat :np item. This is the
+  bucket-routing cross-contamination stress test Renarin's patterns care
+  about. Results must land in separate P_13_1 and P_13_8 buckets with
+  exactly one P_14_1 for the 23% row and NO P_14_8."
+  {:seller sample-seller
+   :buyer  sample-buyer
+   :number "MIX-1/4/2026"
+   :date   (LocalDate/of 2026 4 14)
+   :items  [{:vat 23  :netto 200.00M :title "Konsultacja w PL"}
+            {:vat :np :netto 1000.00M :title "Usługa poza RP"}]})
+
+(deftest np-single-item-routes-to-p13-8
+  (testing ":vat :np routes netto into P_13_8 (and NOT other buckets)"
+    (let [xml (fa/invoice->fa3-xml np-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (= "10000.00" (text (child fa-el "P_13_8")))
+          "np netto must land in P_13_8")
+      (is (nil? (child fa-el "P_13_1")) "no P_13_1")
+      (is (nil? (child fa-el "P_13_6_1")) "no P_13_6_1 (domestic 0%)")
+      (is (nil? (child fa-el "P_13_6_3")) "no P_13_6_3 (export of goods)")
+      (is (nil? (child fa-el "P_13_7")) "no P_13_7 (zwolnienie)")
+      (is (nil? (child fa-el "P_13_9")) "no P_13_9 (np II)")
+      (is (nil? (child fa-el "P_14_1")) "no P_14_1")
+      (is (nil? (child fa-el "P_14_8")) "no P_14_8 — the schema does not define one")
+      (is (= "10000.00" (text (child fa-el "P_15")))
+          "P_15 total equals net (no VAT added)"))))
+
+(deftest np-eu-single-item-routes-to-p13-9
+  (testing ":vat :np-eu routes netto into P_13_9"
+    (let [xml (fa/invoice->fa3-xml np-eu-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (= "5000.00" (text (child fa-el "P_13_9"))))
+      (is (nil? (child fa-el "P_13_8")))
+      (is (nil? (child fa-el "P_13_1")))
+      (is (nil? (child fa-el "P_13_6_1")))
+      (is (= "5000.00" (text (child fa-el "P_15")))))))
+
+(deftest np-p12-is-np-I
+  (testing "P_12 on the FaWiersz row emits the literal enum value 'np I'"
+    (let [xml (fa/invoice->fa3-xml np-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          w (child fa-el "FaWiersz")]
+      (is (= "np I" (text (child w "P_12")))))))
+
+(deftest np-eu-p12-is-np-II
+  (testing "P_12 on the FaWiersz row emits the literal enum value 'np II'"
+    (let [xml (fa/invoice->fa3-xml np-eu-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          w (child fa-el "FaWiersz")]
+      (is (= "np II" (text (child w "P_12")))))))
+
+(deftest np-keeps-p19n
+  (testing "Pure-np invoice must keep P_19N set (np ≠ zwolnienie)"
+    (doseq [inv [np-single-item-invoice np-eu-single-item-invoice]]
+      (let [root (.getDocumentElement (parse-doc (fa/invoice->fa3-xml inv)))
+            adn  (child (child root "Fa") "Adnotacje")
+            zwol (child adn "Zwolnienie")]
+        (is (some? (child zwol "P_19N"))
+            "P_19N must be present on pure-np invoices")
+        (is (nil? (child zwol "P_19"))
+            "P_19 must NOT be present on pure-np invoices")))))
+
+(deftest np-keeps-p18-absent
+  (testing "np is NOT reverse-charge (art. 17); P_18 must remain '2'"
+    (let [xml (fa/invoice->fa3-xml np-single-item-invoice)
+          adn (child (child (.getDocumentElement (parse-doc xml)) "Fa")
+                     "Adnotacje")]
+      (is (= "2" (text (child adn "P_18")))))))
+
+(deftest np-embeds-legal-basis-in-dodatkowy-opis
+  (testing ":np invoice embeds art. 28b citation in DodatkowyOpis"
+    (let [xml (fa/invoice->fa3-xml np-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          opis (child fa-el "DodatkowyOpis")]
+      (is (some? opis) "DodatkowyOpis must be present for np invoices")
+      (is (= "Podstawa prawna (np I)" (text (child opis "Klucz"))))
+      (is (str/includes? (text (child opis "Wartosc")) "art. 28b")
+          "Legal basis text must cite art. 28b"))))
+
+(deftest np-eu-embeds-art-100-basis
+  (testing ":np-eu invoice embeds art. 100 ust. 1 pkt 4 citation"
+    (let [xml (fa/invoice->fa3-xml np-eu-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          opis (child fa-el "DodatkowyOpis")]
+      (is (some? opis))
+      (is (= "Podstawa prawna (np II)" (text (child opis "Klucz"))))
+      (is (str/includes? (text (child opis "Wartosc")) "art. 100 ust. 1 pkt 4")))))
+
+(deftest pure-vat-invoice-has-no-dodatkowy-opis
+  (testing "Invoice with only taxable items emits NO DodatkowyOpis"
+    (let [xml (fa/invoice->fa3-xml single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (nil? (child fa-el "DodatkowyOpis"))))))
+
+(deftest mixed-np-and-vat-no-cross-contamination
+  (testing "Mixed invoice: P_13_1 gets the 23% item, P_13_8 gets the np item"
+    (let [xml (fa/invoice->fa3-xml np-mixed-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (= "200.00"  (text (child fa-el "P_13_1"))) "23% netto in P_13_1")
+      (is (= "46.00"   (text (child fa-el "P_14_1"))) "23% VAT in P_14_1")
+      (is (= "1000.00" (text (child fa-el "P_13_8"))) "np netto in P_13_8")
+      (is (nil? (child fa-el "P_14_8")))
+      (is (= "1246.00" (text (child fa-el "P_15")))
+          "P_15 = 200 + 46 (VAT) + 1000 (np, no VAT)"))))
+
+(deftest currency-defaults-to-pln
+  (let [xml (fa/invoice->fa3-xml single-item-invoice)
+        fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+    (is (= "PLN" (text (child fa-el "KodWaluty"))))))
+
+(deftest currency-passes-through
+  (are [cur] (= cur (text (child (child (.getDocumentElement
+                                          (parse-doc
+                                            (fa/invoice->fa3-xml
+                                              (assoc single-item-invoice
+                                                     :currency cur))))
+                                         "Fa")
+                                  "KodWaluty")))
+    "PLN" "USD" "EUR" "GBP" "CHF"))
+
+(deftest currency-invalid-triggers-xsd-failure
+  (testing "An invalid ISO 4217 code must fail XSD validation"
+    (let [xml (fa/invoice->fa3-xml (assoc single-item-invoice :currency "XYZ"))
+          err (validate-xsd xml)]
+      (is (some? err) "XSD must reject unknown currency code")
+      (is (str/includes? (or err "") "enumeration")))))
+
+(deftest item-currency-mismatch-warns-but-does-not-crash
+  (testing "Per-item :currency mismatch is warned and ignored, not fatal"
+    (let [invoice (assoc single-item-invoice
+                         :currency "PLN"
+                         :items [{:vat 23 :netto 100 :title "A" :currency "USD"}])
+          sw (java.io.StringWriter.)]
+      (binding [*out* sw]
+        (let [xml (fa/invoice->fa3-xml invoice)
+              fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+          (is (= "PLN" (text (child fa-el "KodWaluty")))
+              "Invoice-level currency still wins")
+          (is (str/includes? (str sw) "WARN")
+              "Warning must be printed when per-item currency differs")
+          (is (str/includes? (str sw) "USD")))))))
+
+(deftest zw-keyword-routes-to-p13-7
+  (testing ":vat :zw (explicit) routes exactly like the legacy nil :vat"
+    (let [xml (fa/invoice->fa3-xml
+                (assoc single-item-invoice
+                       :items [{:vat :zw :netto 100 :title "Zwolnione"}]))
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          adn  (child fa-el "Adnotacje")
+          zwol (child adn "Zwolnienie")]
+      (is (= "100.00" (text (child fa-el "P_13_7"))))
+      (is (nil? (child fa-el "P_13_8")))
+      (is (some? (child zwol "P_19")) ":zw must set P_19, not P_19N"))))
+
+(deftest np-and-np-eu-xsd-validate
+  (testing "Every np-class invoice shape validates against the real FA(3) XSD"
+    (doseq [[label inv] [["single np"    np-single-item-invoice]
+                         ["single np-eu" np-eu-single-item-invoice]
+                         ["mixed 23+np"  np-mixed-invoice]
+                         [":zw"          (assoc single-item-invoice
+                                                :items [{:vat :zw :netto 100
+                                                         :title "Zw"}])]
+                         ["currency USD" (assoc np-single-item-invoice
+                                                :currency "USD")]
+                         ["currency EUR" (assoc np-eu-single-item-invoice
+                                                :currency "EUR")]]]
+      (let [err (validate-xsd (fa/invoice->fa3-xml inv))]
+        (is (nil? err) (str label " should validate: " err))))))
+
+(deftest p13-bucket-schema-order
+  (testing "P_13_1 < P_13_7 < P_13_8 < P_13_9 < P_15 in emitted XML"
+    (let [items [{:vat 23 :netto 10 :title "std"}
+                 {:vat :zw :netto 20 :title "zwolnienie"}
+                 {:vat :np :netto 30 :title "np I"}
+                 {:vat :np-eu :netto 40 :title "np II"}]
+          xml (fa/invoice->fa3-xml (assoc single-item-invoice :items items))
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+          names (elem-names fa-el)
+          idx-of #(.indexOf names %)]
+      (is (< (idx-of "P_13_1") (idx-of "P_13_7")))
+      (is (< (idx-of "P_13_7") (idx-of "P_13_8")))
+      (is (< (idx-of "P_13_8") (idx-of "P_13_9")))
+      (is (< (idx-of "P_13_9") (idx-of "P_15")))
+      (is (nil? (validate-xsd xml))
+          "4-bucket invoice must XSD-validate"))))
+
+;; ---- Renarin-style discriminator test: fails LOUDLY if someone
+;; "fixes" the np bucket routing to point at the wrong field.
+(deftest discriminator-np-must-not-collide-with-other-zero-buckets
+  (testing "np must NEVER route to P_13_6_1 (domestic 0%) or P_13_6_3 (export of goods)"
+    (let [xml (fa/invoice->fa3-xml np-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (nil? (child fa-el "P_13_6_1"))
+          "FAIL-LOUD: np must not land in P_13_6_1 (domestic 0%) — that is legally distinct and produces incorrect JPK-V7 declarations")
+      (is (nil? (child fa-el "P_13_6_3"))
+          "FAIL-LOUD: np must not land in P_13_6_3 (export of goods) — that is for goods, not services")
+      (is (nil? (child fa-el "P_13_7"))
+          "FAIL-LOUD: np must not land in P_13_7 (zwolnienie) — np and zwolnienie are distinct classifications")
+      (is (some? (child fa-el "P_13_8"))
+          "FAIL-LOUD: np must ALWAYS land in P_13_8. Regression guard."))))
+
+(deftest discriminator-np-eu-must-not-collide-with-p13-8
+  (testing "np-eu and np must route to different buckets (they are legally distinct)"
+    (let [xml (fa/invoice->fa3-xml np-eu-single-item-invoice)
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (nil? (child fa-el "P_13_8"))
+          "FAIL-LOUD: np-eu must not land in P_13_8 — that's for non-art-100 cases")
+      (is (some? (child fa-el "P_13_9"))))))
+
+(deftest parametrized-vat-bucket-matrix
+  (testing "Single-item invoice: each :vat value lands in the correct bucket and validates"
+    (are [vat bucket p12-val]
+         (let [xml (fa/invoice->fa3-xml
+                     (assoc single-item-invoice
+                            :items [{:vat vat :netto 500 :title "Item"}]))
+               fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")
+               w (child fa-el "FaWiersz")]
+           (and (some? (child fa-el bucket))
+                (= p12-val (text (child w "P_12")))
+                (nil? (validate-xsd xml))))
+      23     "P_13_1"   "23"
+      22     "P_13_1"   "22"
+      8      "P_13_2"   "8"
+      7      "P_13_2"   "7"
+      5      "P_13_3"   "5"
+      4      "P_13_4"   "4"
+      3      "P_13_4"   "3"
+      0      "P_13_6_1" "0 KR"
+      :zw    "P_13_7"   "zw"
+      :np    "P_13_8"   "np I"
+      :np-eu "P_13_9"   "np II")))
+
+(deftest users-exact-scenario-validates
+  (testing "Simplified version of the user's real config (Polish contractor → Acme US)"
+    (let [invoice
+          {:seller (assoc sample-seller :name "Jan Kowalski"
+                          :address "ul. Krakowska 1, 00-001 Warszawa")
+           :buyer  us-buyer
+           :number "FV/2026/03/001"
+           :date   (LocalDate/of 2026 3 1)
+           :currency "PLN"
+           :items  [{:vat :np :netto 34769.44M
+                     :title "Software development"
+                     :currency "PLN"}
+                    {:vat :np :netto 1234.56M
+                     :title "Consulting"
+                     :currency "USD"}
+                    {:vat :np :netto 5000.00M
+                     :title "Code review"}]}
+          sw (java.io.StringWriter.)
+          xml (binding [*out* sw]
+                (fa/invoice->fa3-xml invoice))
+          fa-el (child (.getDocumentElement (parse-doc xml)) "Fa")]
+      (is (nil? (validate-xsd xml)) "Must XSD-validate")
+      (is (= "PLN" (text (child fa-el "KodWaluty"))))
+      (is (= "41004.00" (text (child fa-el "P_13_8"))) "All three items summed in P_13_8")
+      (is (= "41004.00" (text (child fa-el "P_15"))) "P_15 = net sum, no VAT added")
+      (is (some? (child fa-el "DodatkowyOpis")))
+      (is (str/includes? (str sw) "WARN")
+          "USD item-level currency must produce a warning"))))

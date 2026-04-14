@@ -4,7 +4,9 @@
   (double (/ (Math/round (* val 100.0)) 100)))
 
 (defn vat [{netto :netto vat-level :vat}]
-  (if-not vat-level 0 (* netto (/ vat-level 100))))
+  (if (number? vat-level)
+    (* netto (/ vat-level 100))
+    0))
 
 (defn brutto [{netto :netto :as item}] (round (+ netto (vat item))))
 (defn netto [{brutto :brutto vat :vat}] (/ (* brutto 100) (+ 100 vat)))

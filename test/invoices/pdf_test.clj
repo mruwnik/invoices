@@ -1,5 +1,6 @@
 (ns invoices.pdf-test
   (:require [clojure.test :refer :all]
+            [clojure.string :as str]
             [invoices.pdf :refer :all]))
 
 
@@ -165,3 +166,51 @@
   (testing "Check whether the notes section is skipped if none provided."
     (is (= (add-notes [:table] []) [:table nil]))
     (is (= (add-notes [:table] nil) [:table nil]))))
+
+(deftest vat-label-for-np-classifications
+  (testing "Stawka VAT label for each :vat value"
+    (is (= "23%" (vat-label 23)))
+    (is (= "8%"  (vat-label 8)))
+    (is (= "0%"  (vat-label 0)))
+    (is (= "zw." (vat-label nil)))
+    (is (= "zw." (vat-label :zw)))
+    (is (= "np I"  (vat-label :np)))
+    (is (= "np II" (vat-label :np-eu)))))
+
+(deftest format-product-for-np-items
+  (testing "np item renders with 'np I' in stawka column and 0 VAT amount"
+    (is (= '([:cell {:colspan 4} "Software development"]
+             "1" "10000.0" "np I" "0.0" "10000.0")
+           (format-product {:netto 10000 :vat :np :title "Software development"}))))
+  (testing "np-eu item renders 'np II'"
+    (is (= '([:cell {:colspan 4} "Consulting"]
+             "1" "5000.0" "np II" "0.0" "5000.0")
+           (format-product {:netto 5000 :vat :np-eu :title "Consulting"}))))
+  (testing ":zw keyword renders 'zw.' (matches legacy nil behavior)"
+    (let [formatted (vec (format-product {:netto 1000 :vat :zw :title "Z"}))]
+      (is (= "zw." (nth formatted 3))))))
+
+(deftest add-notes-auto-prepends-np-legal-basis
+  (testing ":vat :np item triggers automatic art. 28b legal-basis note"
+    (let [result (add-notes [:table] [{:vat :np :netto 100 :title "x"}])
+          rendered (str result)]
+      (is (str/includes? rendered "art. 28b")
+          "Automatic np note must cite art. 28b")
+      (is (str/includes? rendered "nie podlega opodatkowaniu VAT")
+          "Automatic np note must mention nie podlega opodatkowaniu")))
+  (testing ":vat :np-eu item triggers automatic art. 100 ust. 1 pkt 4 note"
+    (let [result (add-notes [:table] [{:vat :np-eu :netto 100 :title "x"}])
+          rendered (str result)]
+      (is (str/includes? rendered "art. 100 ust. 1 pkt 4"))))
+  (testing "Pure-VAT invoice does not emit legal-basis note"
+    (let [result (add-notes [:table] [{:vat 23 :netto 100 :title "x"}])
+          rendered (str result)]
+      (is (not (str/includes? rendered "art. 28b")))
+      (is (not (str/includes? rendered "art. 100")))))
+  (testing "User explicit :notes still render alongside the auto note"
+    (let [result (add-notes [:table] [{:vat :np :netto 100 :title "x"
+                                        :notes ["custom line"]}])
+          rendered (str result)]
+      (is (str/includes? rendered "art. 28b"))
+      (is (str/includes? rendered "custom line")))))
+
