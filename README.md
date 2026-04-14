@@ -228,7 +228,7 @@ Keys:
  * `:env` — `:test` | `:demo` | `:prod` — which KSeF environment to submit to. Start with `:test` until you have a known-good flow.
  * `:nip` — the seller's NIP as a number or string. Must match the context of the token.
  * `:token-env` — the **name** of an environment variable that holds the token. The token itself is NEVER written to `config.edn`; the tool reads it from the environment at runtime. If the env var is unset, submission for that invoice is skipped with a log line (other invoices still process).
- * `:schema` — `:fa-3`. `:fa-2` is a legacy test-only variant and should not be used for new integrations; stick with FA(3).
+ * `:schema` — `:fa-3`. `:fa-2` is legacy: still accepted by prod for backward-compatibility within the Ministry of Finance's deprecation window, but don't use it for new integrations. Stick with FA(3).
 
 Invoices without a `:ksef` key behave exactly as before (PDF only).
 
@@ -257,12 +257,19 @@ end-to-end integration test (`invoices.ksef.integration-test`) that submits a
 real invoice against the TEST sandbox; it self-skips when the required env
 vars are absent, so CI without credentials passes cleanly.
 
-To run it locally, export the three vars and run the test namespace directly:
+To run it locally, export the three vars and run the full test suite:
 
     export KSEF_TEST_TOKEN=<your-test-token>
     export KSEF_TEST_NIP=<nip-matching-the-token>
     export KSEF_TEST_BASE=https://api-test.ksef.mf.gov.pl/v2
-    clj -X:test :nses '[invoices.ksef.integration-test]'
+    clj -X:test
+
+The `:test` alias runs every `*_test.clj` namespace under `test/`. The KSeF
+integration test self-skips when `KSEF_TEST_TOKEN` is unset, so running
+`clj -X:test` without exporting these variables is the normal unit-test
+path — you'll still get a clean green run, just with the integration case
+reported as skipped. Exporting the vars flips it on in place; there is no
+separate command to run "just the integration test."
 
 Note that the KSeF sandbox has daily maintenance windows around 16:00–18:00
 Europe/Warsaw; failures during that window are environmental, not bugs.
