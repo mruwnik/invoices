@@ -7,7 +7,8 @@
         commons-net/commons-net {:mvn/version "3.6"}
         clj-http/clj-http {:mvn/version "3.10.0"}
         cheshire/cheshire {:mvn/version "5.9.0"}
-        clj-pdf/clj-pdf {:mvn/version "2.4.0"}}
+        clj-pdf/clj-pdf {:mvn/version "2.4.0"}
+        org.clojure/data.xml {:mvn/version "0.2.0-alpha9"}}
 
  :aliases
  {:run  {:main-opts ["-m" "invoices.core"]}
