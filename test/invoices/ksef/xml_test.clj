@@ -643,6 +643,65 @@
       :np    "P_13_8"   "np I"
       :np-eu "P_13_9"   "np II")))
 
+;; ---- Podmiot2 identifier discriminators (Renarin, post-8d9c48d) ----
+;;
+;; Taborlin's compliance commit bundled a fix to `dane-identyfikacyjne-podmiot2`
+;; that routes buyer identification across four FA(3) shapes: NIP (Polish), KodUE+NrVatUE
+;; (EU VAT-UE), KodKraju+NrID (non-EU foreign tax id), BrakID (no identifier).
+;; The wider test suite indirectly covers these via XSD validation, but XSD
+;; alone cannot prove that, for example, a US buyer is routed to NrID and NOT
+;; silently back to <NIP> (since both would be well-formed TNrNIP if the field
+;; happened to be all digits). These discriminators lock the routing in per
+;; shape so a regression is loud.
+(deftest podmiot2-us-buyer-uses-nrid
+  (testing "Non-EU buyer with :nip → KodKraju + NrID (not NIP)"
+    (let [xml (fa/invoice->fa3-xml np-single-item-invoice)
+          p2  (child (.getDocumentElement (parse-doc xml)) "Podmiot2")
+          dane (child p2 "DaneIdentyfikacyjne")]
+      (is (nil? (child dane "NIP"))
+          "FAIL-LOUD: US buyer must NOT emit <NIP> — foreign tax IDs don't match TNrNIP pattern")
+      (is (nil? (child dane "NrVatUE"))
+          "FAIL-LOUD: US is not an EU country, NrVatUE is wrong")
+      (is (some? (child dane "KodKraju")))
+      (is (= "US" (text (child dane "KodKraju"))))
+      (is (= "US-ACME-001" (text (child dane "NrID")))))))
+
+(deftest podmiot2-de-buyer-uses-nr-vat-ue
+  (testing "EU buyer with :nip → KodUE + NrVatUE (not NIP, not NrID)"
+    (let [xml (fa/invoice->fa3-xml np-eu-single-item-invoice)
+          dane (child (child (.getDocumentElement (parse-doc xml)) "Podmiot2")
+                      "DaneIdentyfikacyjne")]
+      (is (nil? (child dane "NIP"))
+          "FAIL-LOUD: DE buyer must NOT emit <NIP> — it's an EU VAT-UE id")
+      (is (nil? (child dane "NrID"))
+          "FAIL-LOUD: DE is EU, routes to NrVatUE not NrID")
+      (is (= "DE" (text (child dane "KodUE"))))
+      (is (= "123456789" (text (child dane "NrVatUE")))
+          "country-code prefix must be stripped from the nip value"))))
+
+(deftest podmiot2-domestic-buyer-uses-nip
+  (testing "Implicit-PL buyer with :nip → <NIP> (regression guard for the domestic case)"
+    (let [xml (fa/invoice->fa3-xml single-item-invoice)
+          dane (child (child (.getDocumentElement (parse-doc xml)) "Podmiot2")
+                      "DaneIdentyfikacyjne")]
+      (is (= "9875645342" (text (child dane "NIP"))))
+      (is (nil? (child dane "NrID")))
+      (is (nil? (child dane "NrVatUE")))
+      (is (nil? (child dane "BrakID"))))))
+
+(deftest podmiot2-no-nip-uses-brak-id
+  (testing "Buyer without :nip → <BrakID>1</BrakID>"
+    (let [no-nip-buyer {:name "Walk-in Customer" :address "anon" :country "PL"}
+          xml (fa/invoice->fa3-xml (assoc single-item-invoice :buyer no-nip-buyer))
+          dane (child (child (.getDocumentElement (parse-doc xml)) "Podmiot2")
+                      "DaneIdentyfikacyjne")]
+      (is (= "1" (text (child dane "BrakID"))))
+      (is (nil? (child dane "NIP")))
+      (is (nil? (child dane "NrID")))
+      (is (nil? (child dane "NrVatUE")))
+      (is (nil? (validate-xsd xml))
+          "No-nip invoice must XSD-validate via BrakID path"))))
+
 (deftest users-exact-scenario-validates
   (testing "Simplified version of the user's real config (Polish contractor → Acme US)"
     (let [invoice
