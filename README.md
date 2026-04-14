@@ -284,6 +284,27 @@ invoices in your name. Treat it like a password:
  * Rotate it if it may have been exposed.
  * The tool reads the token into memory for the duration of a submission and never writes it to disk.
 
+### Demo configs
+
+There is a set of realistic demo configs under `demo/configs/` you can
+use to eyeball the full pipeline end to end — PDF rendering, FA(3) XML
+generation, and (optionally) KSeF submission. The configs cover the
+Polish-contractor-to-US-company `:vat :np` case (the primary use case),
+a domestic Polish invoice, a domestic Polish invoice with a KSeF block,
+an intra-EU B2B case, and a "every VAT bucket at once" stress fixture.
+
+Run them with:
+
+    demo/run.sh                        # list available configs
+    demo/run.sh non-eu-services        # run one
+    demo/run.sh --all                  # run every config
+
+Each run drops artifacts under `demo/outputs/<config>/` (gitignored).
+A companion golden test at `test/invoices/demo_test.clj` compares the
+generated FA(3) XML against committed fixtures in `demo/golden/` so
+drift in the generator is loud. See `demo/README.md` and
+`demo/CHECKLIST.md` for the full workflow and the manual eyeball list.
+
 ## Callbacks
 
 A list of additional commands can be added to each invoice. Each command will be called with

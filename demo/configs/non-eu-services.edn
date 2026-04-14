@@ -1,0 +1,29 @@
+;; DEMO: Polish contractor → US company, services, art. 28b ust. 1.
+;;
+;; This is the user's primary use case. Three line items at `:vat :np`
+;; means the invoice carries no Polish VAT; the FA(3) XML lands everything
+;; in P_13_8 with P_12="np I" on each row, and the DodatkowyOpis block
+;; carries the art. 28b legal-basis annotation so the KSeF-stored document
+;; is self-explanatory.
+;;
+;; Buyer has no :nip, only a :country — this forces the FA(3) Podmiot2
+;; BrakID path (the "unknown foreign entity" shape the schema supports
+;; alongside NIP/VAT-UE/NrID).
+;;
+;; Not submitted to KSeF by default — add a :ksef block if you want to.
+
+{:seller {:name "Mr. Blobby Consulting"
+          :address "ul. Warszawska 12, 00-001 Warszawa"
+          :nip 1234567890
+          :account "12 3456 7890 1234 5678 9012 3456"
+          :bank "Bank PKO BP"
+          :email "mr.blobby@example.com"
+          :phone 555123456}
+ :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+ :invoices [{:buyer {:name "Acme Corp"
+                     :address "123 Main Street, Springfield IL 62701"
+                     :country "US"}
+             :currency "PLN"
+             :items [{:vat :np :netto 8000.00M :title "Software development — backend services"}
+                     {:vat :np :netto 4000.00M :title "Software development — API integration"}
+                     {:vat :np :netto 2000.00M :title "Technical consultation"}]}]}

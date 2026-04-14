@@ -1,0 +1,27 @@
+;; DEMO: Polish seller → German B2B buyer, intra-EU services under
+;; art. 100 ust. 1 pkt 4 (the VAT-UE recapitulative-statement case).
+;;
+;; Buyer has a :country "DE" and a :nip (the EU VAT-UE id, DE-prefixed).
+;; Podmiot2 routes through KodUE + NrVatUE; the country prefix is
+;; stripped from NrVatUE. Items at :vat :np-eu land in P_13_9 with
+;; P_12="np II", and DodatkowyOpis carries the art. 100 citation.
+;;
+;; Priced in PLN (the seller's reporting currency). KSeF-stored FA(3)
+;; documents are always in PLN for the fiscal summary; a USD/EUR demo
+;; would need :currency "EUR" which the generator supports.
+
+{:seller {:name "Mr. Blobby Consulting"
+          :address "ul. Warszawska 12, 00-001 Warszawa"
+          :nip 1234567890
+          :account "12 3456 7890 1234 5678 9012 3456"
+          :bank "Bank PKO BP"
+          :email "mr.blobby@example.com"
+          :phone 555123456}
+ :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+ :invoices [{:buyer {:name "Bundenbach GmbH"
+                     :address "Unterstrasse 12, 10115 Berlin"
+                     :country "DE"
+                     :nip "DE123456789"}
+             :currency "PLN"
+             :items [{:vat :np-eu :netto 6000.00M :title "Consulting — SaaS platform design"}
+                     {:vat :np-eu :netto 3000.00M :title "Consulting — integration workshops"}]}]}
