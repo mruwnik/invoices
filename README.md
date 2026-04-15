@@ -294,6 +294,35 @@ path — you'll still get a clean green run, just with the integration case
 reported as skipped. Exporting the vars flips it on in place; there is no
 separate command to run "just the integration test."
 
+### Using the DEMO environment
+
+`:env :demo` targets `api-demo.ksef.mf.gov.pl`. The DEMO environment is
+more production-like than `:test` — it has tenant-isolated data and
+is closer to PROD's behavior — while still being a sandbox that won't
+bill anyone. Point any of the three entry points at it by changing just
+the environment:
+
+ * **At runtime** (`clj -M:run` against a config): set `:env :demo` in
+   the `:ksef` block. The URL lookup in `invoices.ksef/base-urls` handles
+   the routing; nothing else in the submission chain is environment-aware.
+ * **Integration test** (`clj -M:test` with credentials exported):
+   `export KSEF_TEST_BASE=https://api-demo.ksef.mf.gov.pl/v2` alongside
+   `KSEF_TEST_TOKEN` / `KSEF_TEST_NIP`. The integration test reads the
+   base URL from the env var verbatim; the "TEST" in the env var name is
+   historical, not a pin to the `:test` environment.
+ * **Bootstrap script** (`scripts/ksef_bootstrap.clj`): pass
+   `https://api-demo.ksef.mf.gov.pl/v2` as the first CLI argument instead
+   of the TEST URL. The script is env-agnostic — only the docstring
+   example happens to show `api-test`.
+
+**Cert caveat**: `:test` accepts self-signed RSA-2048 organization-seal
+certs (see the bootstrap docstring). DEMO is closer to PROD and may
+require a qualified cert (SZAFIR or equivalent) instead — this repo has
+not been exercised end-to-end against DEMO, so if a bootstrap run fails
+at the XAdES signature step with a 4xx from `/auth/xades-signature`,
+the most likely cause is cert policy, not our signing code. Obtain a
+qualified cert via the KSeF taxpayer panel before troubleshooting.
+
 Note that the KSeF sandbox has daily maintenance windows around 16:00–18:00
 Europe/Warsaw; failures during that window are environmental, not bugs.
 
