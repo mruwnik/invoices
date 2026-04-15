@@ -69,6 +69,14 @@ substring assertions (e.g. `<P_13_8>14000.00</P_13_8>` for the
 non-EU fixture) so a naive "regenerate goldens blindly" workflow still
 hits a meaningful check.
 
+**Note:** `polish-domestic.fa3.xml` and `polish-domestic-with-ksef.fa3.xml`
+are byte-identical. That's expected, not a copy-paste mistake: `:ksef`
+is facade metadata (env, token-env, schema) that drives submission,
+not XML content. Two invoices with the same items + parties produce
+the same FA(3) document regardless of whether either one is also
+submitted to KSeF. Both fixtures are committed so the `-with-ksef`
+config is covered if the facade ever starts shaping XML.
+
 ### Updating goldens
 
 If you change a config (or the XML generator) and the diff is

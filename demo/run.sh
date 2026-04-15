@@ -9,9 +9,14 @@
 #   demo/run.sh non-eu-services       # run one
 #   demo/run.sh --all                 # run every config in demo/configs/
 #
-# The tool writes the PDF to the CURRENT WORKING DIRECTORY based on the
-# invoice title. We cd into the per-config output dir before invoking
-# clj so everything lands in the right place.
+# Why we run clj from REPO_ROOT and move artifacts afterwards:
+# pdf/render writes the PDF (and ksef/submit-to-ksef writes sidecars)
+# into the CURRENT WORKING DIRECTORY, so the natural move would be to
+# cd into the per-config output dir first. That doesn't work: clj needs
+# the repo's deps.edn (for the :run alias and the pinned clojure
+# version), so it has to run from REPO_ROOT. Instead we snapshot
+# pre-existing .pdf/.ksef.xml/.upo.xml files in REPO_ROOT, run clj, and
+# move the NEW files into demo/outputs/<config>/ afterwards.
 
 set -euo pipefail
 
@@ -30,6 +35,12 @@ list_configs() {
     echo "Usage: $0 <config-name>   OR   $0 --all"
 }
 
+# Snapshot filenames matching the given glob in REPO_ROOT. Used to
+# distinguish pre-existing artifacts from ones the next clj run produces.
+snapshot_artifacts() {
+    ( cd "$REPO_ROOT" && ls -1 *.pdf *.ksef.xml *.upo.xml 2>/dev/null || true )
+}
+
 run_one() {
     local name="$1"
     local cfg="$CONFIGS_DIR/$name.edn"
@@ -43,13 +54,35 @@ run_one() {
     echo "==> $name"
     echo "    config: $cfg"
     echo "    output: $out_dir"
-    (
-        cd "$out_dir"
-        clj -Sdeps "{:paths [\"$REPO_ROOT/src\" \"$REPO_ROOT/resources\"]}" \
-            -M:run "$cfg"
-    )
+
+    local before after rc
+    before="$(snapshot_artifacts)"
+
+    set +e
+    ( cd "$REPO_ROOT" && clj -M:run "$cfg" )
+    rc=$?
+    set -e
+    if [ $rc -ne 0 ]; then
+        echo "    WARNING: clj exited with $rc (see stack above)" >&2
+    fi
+
+    after="$(snapshot_artifacts)"
+
+    # Move files present in `after` but not `before` into out_dir.
+    # `comm -13` lists lines only in the second (sorted) stream.
+    local new_files
+    new_files="$(comm -13 <(printf '%s\n' "$before" | sort -u) <(printf '%s\n' "$after" | sort -u) || true)"
+    if [ -z "$new_files" ]; then
+        echo "    WARNING: no new artifacts produced" >&2
+    else
+        while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            mv "$REPO_ROOT/$f" "$out_dir/"
+        done <<< "$new_files"
+    fi
+
     echo "    artifacts:"
-    ls -1 "$out_dir" | sed 's/^/      /'
+    ls -1 "$out_dir" 2>/dev/null | sed 's/^/      /' || echo "      (none)"
     echo
 }
 
