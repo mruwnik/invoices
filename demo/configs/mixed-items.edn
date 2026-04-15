@@ -1,0 +1,36 @@
+;; DEMO: all the rate buckets at once — a stress test for FA(3)
+;; P_13_N/P_14_N routing. One line per bucket:
+;;
+;;   23%   → P_13_1 / P_14_1   (std)
+;;   8%    → P_13_2 / P_13_2   (red1)
+;;   5%    → P_13_3 / P_14_3   (red2)
+;;   0 KR  → P_13_6_1          (domestic zero)
+;;   :zw   → P_13_7            (exempt)
+;;   :np   → P_13_8            (np I, art. 28b)
+;;   :np-eu → P_13_9           (np II, art. 100)
+;;
+;; This is the "did the bucket router lose a line?" regression guard.
+;; Buyer is PL → Podmiot2 emits <NIP>; the :np/:np-eu items coexist
+;; with PL-domestic rates in the same invoice, so the DodatkowyOpis
+;; block must surface both legal-basis entries.
+
+{:seller {:name "Mr. Blobby Consulting"
+          :address "ul. Warszawska 12, 00-001 Warszawa"
+          :nip 1234567890
+          :account "12 3456 7890 1234 5678 9012 3456"
+          :bank "Bank PKO BP"
+          :email "mr.blobby@example.com"
+          :phone 555123456}
+ :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+ :invoices [{:buyer {:name "Buty S.A."
+                     :address "ul. Szewska 32, 76-543 Bakow"
+                     :nip 9875645342
+                     :email "faktury@buty.example"}
+             :currency "PLN"
+             :items [{:vat 23    :netto 1000.00M :title "Bucket 1 — std 23%"}
+                     {:vat 8     :netto 500.00M  :title "Bucket 2 — red1 8%"}
+                     {:vat 5     :netto 250.00M  :title "Bucket 3 — red2 5%"}
+                     {:vat 0     :netto 125.00M  :title "Bucket 4 — 0 KR domestic"}
+                     {:vat :zw   :netto 75.00M   :title "Bucket 5 — zwolnione"}
+                     {:vat :np   :netto 4000.00M :title "Bucket 6 — np I (art. 28b)"}
+                     {:vat :np-eu :netto 2000.00M :title "Bucket 7 — np II (art. 100)"}]}]}

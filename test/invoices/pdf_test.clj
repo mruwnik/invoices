@@ -1,5 +1,6 @@
 (ns invoices.pdf-test
   (:require [clojure.test :refer :all]
+            [clojure.string :as str]
             [invoices.pdf :refer :all]))
 
 
@@ -124,12 +125,29 @@
             (list :table {:header [{:background-color [216 247 249]} "Lp." [:cell {:colspan 4} "Nazwa"] "Ilość" "Cena netto" "Stawka VAT" "Kwota VAT" "Wartość brutto"], :num-cols 10}
                      (list 1 [:cell {:colspan 4} "Buty kowbojskie"] "1" "123.21" "8%" "9.86" "133.07")
                      (list 2 [:cell {:colspan 4} "Usługa szewska bez VAT"] "1" "321.45" "zw." "0.0" "321.45")
-                     [[:cell {:background-color [84 219 229], :colspan 5, :align :center} "Razem"]
+                     [[:cell {:background-color [84 219 229], :set-border [], :colspan 5, :align :center} "Razem do zapłaty: 454.52 PLN"]
                       [:cell {:background-color [216 247 249]} "2.0"]
                       [:cell {:background-color [216 247 249]} "444.66"]
-                      ""
+                      "wszystkie"
                       [:cell {:background-color [216 247 249]} "9.86"]
-                      [:cell {:background-color [216 247 249]} "454.52"]])])))))
+                      [:cell {:background-color [216 247 249]} "454.52"]]
+                     [[:cell {:background-color [84 219 229], :set-border [], :colspan 5, :align :center} ""]
+                      [:cell {:background-color [216 247 249]} "1.0"]
+                      [:cell {:background-color [216 247 249]} "321.45"]
+                      "zw."
+                      [:cell {:background-color [216 247 249]} "0.0"]
+                      [:cell {:background-color [216 247 249]} "321.45"]]
+                     [[:cell {:background-color [84 219 229], :set-border [], :colspan 5, :align :center} ""]
+                      [:cell {:background-color [216 247 249]} "1.0"]
+                      [:cell {:background-color [216 247 249]} "123.21"]
+                      "8%"
+                      [:cell {:background-color [216 247 249]} "9.86"]
+                      [:cell {:background-color [216 247 249]} "133.07"]])
+            [:table {:border false, :padding 0, :spacing 0, :num-cols 6}
+             [[:cell.param {:align :right} "Zapłacono:  "]
+              [:cell {:colspan 2} "0.00 PLN"]
+              [:cell.param {:align :right} "Do zapłaty:  "]
+              [:cell {:colspan 2} "454.52 PLN"]]]])))))
 
 (deftest test-add-notes
   (testing "Check whether notes get correctly added"
@@ -148,3 +166,78 @@
   (testing "Check whether the notes section is skipped if none provided."
     (is (= (add-notes [:table] []) [:table nil]))
     (is (= (add-notes [:table] nil) [:table nil]))))
+
+(deftest vat-label-for-np-classifications
+  (testing "Stawka VAT label for each :vat value"
+    (is (= "23%" (vat-label 23)))
+    (is (= "8%"  (vat-label 8)))
+    (is (= "0%"  (vat-label 0)))
+    (is (= "zw." (vat-label nil)))
+    (is (= "zw." (vat-label :zw)))
+    (is (= "np I"  (vat-label :np)))
+    (is (= "np II" (vat-label :np-eu)))))
+
+(deftest format-product-for-np-items
+  (testing "np item renders with 'np I' in stawka column and 0 VAT amount"
+    (is (= '([:cell {:colspan 4} "Software development"]
+             "1" "10000.0" "np I" "0.0" "10000.0")
+           (format-product {:netto 10000 :vat :np :title "Software development"}))))
+  (testing "np-eu item renders 'np II'"
+    (is (= '([:cell {:colspan 4} "Consulting"]
+             "1" "5000.0" "np II" "0.0" "5000.0")
+           (format-product {:netto 5000 :vat :np-eu :title "Consulting"}))))
+  (testing ":zw keyword renders 'zw.' (matches legacy nil behavior)"
+    (let [formatted (vec (format-product {:netto 1000 :vat :zw :title "Z"}))]
+      (is (= "zw." (nth formatted 3))))))
+
+(deftest vat-sort-key-total-ordering
+  (testing "nil sorts before numeric rates (preserves legacy (sort [8 nil]) → (nil 8))"
+    (is (= [nil 8] (sort-by vat-sort-key [8 nil])))
+    (is (= [nil 0 8 23] (sort-by vat-sort-key [23 nil 0 8]))))
+
+  (testing "numerics sort ascending"
+    (is (= [0 5 8 23] (sort-by vat-sort-key [23 0 8 5]))))
+
+  (testing "keywords sort in canonical order (:zw < :np < :np-eu)"
+    (is (= [:zw :np :np-eu] (sort-by vat-sort-key [:np-eu :np :zw])))
+    (is (= [:zw :np] (sort-by vat-sort-key [:np :zw]))))
+
+  (testing "mixed int + keyword: nil, numerics ascending, then keywords canonical"
+    (is (= [nil 8 23 :zw :np :np-eu]
+           (sort-by vat-sort-key [:np 23 nil :np-eu 8 :zw])))
+    (is (= [23 :np]        (sort-by vat-sort-key [:np 23])))
+    (is (= [8 :np-eu]      (sort-by vat-sort-key [:np-eu 8]))))
+
+  (testing "sort is idempotent (stable total ordering)"
+    (let [input [23 :np 8 nil :np-eu :zw 0]
+          once  (sort-by vat-sort-key input)
+          twice (sort-by vat-sort-key once)]
+      (is (= once twice))))
+
+  (testing "heterogeneous input never throws ClassCast (regression from 8d9c48d)"
+    (is (some? (sort-by vat-sort-key [23 :np 8 :np-eu :zw 0 nil])))))
+
+(deftest add-notes-auto-prepends-np-legal-basis
+  (testing ":vat :np item triggers automatic art. 28b legal-basis note"
+    (let [result (add-notes [:table] [{:vat :np :netto 100 :title "x"}])
+          rendered (str result)]
+      (is (str/includes? rendered "art. 28b")
+          "Automatic np note must cite art. 28b")
+      (is (str/includes? rendered "nie podlega opodatkowaniu VAT")
+          "Automatic np note must mention nie podlega opodatkowaniu")))
+  (testing ":vat :np-eu item triggers automatic art. 100 ust. 1 pkt 4 note"
+    (let [result (add-notes [:table] [{:vat :np-eu :netto 100 :title "x"}])
+          rendered (str result)]
+      (is (str/includes? rendered "art. 100 ust. 1 pkt 4"))))
+  (testing "Pure-VAT invoice does not emit legal-basis note"
+    (let [result (add-notes [:table] [{:vat 23 :netto 100 :title "x"}])
+          rendered (str result)]
+      (is (not (str/includes? rendered "art. 28b")))
+      (is (not (str/includes? rendered "art. 100")))))
+  (testing "User explicit :notes still render alongside the auto note"
+    (let [result (add-notes [:table] [{:vat :np :netto 100 :title "x"
+                                        :notes ["custom line"]}])
+          rendered (str result)]
+      (is (str/includes? rendered "art. 28b"))
+      (is (str/includes? rendered "custom line")))))
+

@@ -7,7 +7,11 @@ Generate invoices from a config file
 Use the following to see how it works on the provided sample config (make sure to update
 the JIRA credentials with correct values).
 
-    lein run resources/config.edn
+    clj -M:run resources/config.edn
+
+The project uses `deps.edn` (tools.deps) rather than `project.clj`; there is no
+longer a Leiningen build file. The `:run` alias invokes `invoices.core/-main`
+and the `:test` alias runs the test suite via `clj -X:test`.
 
 
 ## Options
@@ -191,6 +195,224 @@ have an :email key set and a :smtp key with the :smtp settings for the email ser
                         :ssl true}}]
 
 The `:email` value can be a string (i.e. a single email address) or a list of strings.
+
+## KSeF (Polish e-invoicing)
+
+KSeF (Krajowy System e-Faktur) is the Polish Ministry of Finance's national
+e-invoicing system. When an invoice has a `:ksef` key, this tool generates the
+PDF as usual and additionally submits a **FA(3)**-schema XML document to KSeF,
+receiving a permanent numer KSeF and a signed UPO (Urzędowe Poświadczenie
+Odbioru) confirmation. Three environments are supported: `:test`
+(`api-test.ksef.mf.gov.pl`), `:demo` (`api-demo.ksef.mf.gov.pl`) and `:prod`
+(`api.ksef.mf.gov.pl`).
+
+### One-time setup
+
+1. Log in to the KSeF taxpayer panel at [podatki.gov.pl](https://podatki.gov.pl) → KSeF.
+2. Generate a token with permissions `InvoiceRead` + `InvoiceWrite` in the role matching the seller NIP.
+3. Copy the token value somewhere safe — it will be shown once.
+
+### Config shape
+
+Define `:ksef` **once** at the seller level and every invoice in the
+config inherits it:
+
+    {:seller {:name "Mr. Blobby"
+              :nip 6423166047
+              :ksef {:env :test
+                     :token-env "KSEF_TOKEN"
+                     :schema :fa-3}}
+     :invoices [{:buyer {(...)} :items [(...)]}      ; inherits → submits
+                {:buyer {(...)} :items [(...)]}]}    ; inherits → submits
+
+Keys inside the `:ksef` map:
+
+ * `:env` — `:test` | `:demo` | `:prod` — which KSeF environment to submit to. Start with `:test` until you have a known-good flow.
+ * `:nip` — the seller's NIP as a number or string. Must match the context of the token. **Optional** at the `:ksef` level: if omitted, it defaults to the `:seller :nip` at the top of the config (which you already have to set for the PDF anyway).
+ * `:token-env` — the **name** of an environment variable that holds the token. The token itself is never written to `config.edn`; the tool reads it from the environment at runtime. Ideal for shared configs, CI, or any deployment where the same config file is used across machines with different credentials.
+ * `:token` — the **literal token string** embedded directly in the config. Fine for single-machine setups where the config file already has appropriate filesystem permissions (the token is as readable as the file itself; env-var indirection doesn't buy you anything extra in that case). Keep `config.edn` out of version control if you use this form.
+ * `:schema` — `:fa-3`. `:fa-2` is legacy: still accepted by prod for backward-compatibility within the Ministry of Finance's deprecation window, but don't use it for new integrations. Stick with FA(3).
+
+Precedence when both `:token-env` and `:token` are set: the env var wins **if it resolves to a non-blank value**; otherwise the literal `:token` is used as a fallback. This lets operators override an in-config literal at runtime (e.g., for a one-off submission under a different token) without editing the file. If neither form is set — or `:token-env` names a variable that isn't exported and no `:token` is present — submission for that invoice is skipped with a log line, and other invoices in the same run continue processing.
+
+#### Per-invoice override
+
+An invoice can override individual keys (or opt out entirely) by setting
+its own `:ksef` block. Invoice-level keys **merge over** the seller-level
+block — you only have to specify what changes:
+
+    :invoices [{:buyer {(...)} :items [(...)]}                     ; inherits seller :ksef
+               {:buyer {(...)} :items [(...)] :ksef {:env :prod}}  ; override just :env
+               {:buyer {(...)} :items [(...)] :ksef nil}           ; explicit opt-out (PDF only)
+               {:buyer {(...)} :items [(...)] :ksef {:nip 999}}]   ; branch billing — override NIP
+
+Merge semantics:
+
+ * Invoice has no `:ksef` key → **inherit** the seller's block verbatim.
+ * Invoice has `:ksef` as a map → `(merge seller-ksef invoice-ksef)`. Invoice keys win on individual fields; an empty map `{}` is equivalent to inheritance.
+ * Invoice has `:ksef nil` (or `false`) → **explicit opt-out**. This invoice generates a PDF but does NOT submit to KSeF, even if the seller has a `:ksef` block. Useful for a mixed run.
+
+The **legacy per-invoice shape** — `:ksef` on the invoice with no seller-level
+block — still works unchanged; the merge is simply against an empty base.
+
+Invoices without any `:ksef` (neither at seller nor invoice level) behave
+exactly as before (PDF only).
+
+### Running
+
+    export KSEF_TOKEN=<your-token>
+    clj -M:run resources/config.edn
+
+For every invoice with a `:ksef` block, the tool will:
+
+1. Generate the PDF as usual.
+2. Build the FA(3) XML and submit it via the KSeF online session API.
+3. Save two sidecar files next to the PDF: `<invoice-title>.ksef.xml` (the document that was sent) and `<invoice-title>.upo.xml` (the UPO returned by KSeF).
+4. Print `" - KSeF accepted: <numer-ksef>"` on success.
+
+If the submission fails for any reason (network, auth, validation, sandbox
+downtime), the failure is logged as `" - KSeF FAILED: <error>"` and the tool
+continues processing the remaining invoices. **The PDF is always generated,
+even when KSeF submission fails** — KSeF is an additive sidecar, never a gate
+on invoice rendering.
+
+### Integration tests
+
+Unit tests mock every HTTP call and run without credentials. There is also an
+end-to-end integration test (`invoices.ksef.integration-test`) that submits a
+real invoice against the TEST sandbox; it self-skips when the required env
+vars are absent, so CI without credentials passes cleanly.
+
+To run it locally, export the three vars and run the full test suite:
+
+    export KSEF_TEST_TOKEN=<your-test-token>
+    export KSEF_TEST_NIP=<nip-matching-the-token>
+    export KSEF_TEST_BASE=https://api-test.ksef.mf.gov.pl/v2
+    clj -X:test
+
+The `:test` alias runs every `*_test.clj` namespace under `test/`. The KSeF
+integration test self-skips when `KSEF_TEST_TOKEN` is unset, so running
+`clj -X:test` without exporting these variables is the normal unit-test
+path — you'll still get a clean green run, just with the integration case
+reported as skipped. Exporting the vars flips it on in place; there is no
+separate command to run "just the integration test."
+
+### Using the DEMO environment
+
+`:env :demo` targets `api-demo.ksef.mf.gov.pl`. The DEMO environment is
+more production-like than `:test` — it has tenant-isolated data and
+is closer to PROD's behavior — while still being a sandbox that won't
+bill anyone. Point any of the three entry points at it by changing just
+the environment:
+
+ * **At runtime** (`clj -M:run` against a config): set `:env :demo` in
+   the `:ksef` block. The URL lookup in `invoices.ksef/base-urls` handles
+   the routing; nothing else in the submission chain is environment-aware.
+ * **Integration test** (`clj -M:test` with credentials exported):
+   `export KSEF_TEST_BASE=https://api-demo.ksef.mf.gov.pl/v2` alongside
+   `KSEF_TEST_TOKEN` / `KSEF_TEST_NIP`. The integration test reads the
+   base URL from the env var verbatim; the "TEST" in the env var name is
+   historical, not a pin to the `:test` environment.
+ * **Bootstrap script** (`scripts/ksef_bootstrap.clj`): pass
+   `https://api-demo.ksef.mf.gov.pl/v2` as the first CLI argument instead
+   of the TEST URL. The script is env-agnostic — only the docstring
+   example happens to show `api-test`.
+
+**Cert caveat**: `:test` accepts self-signed RSA-2048 organization-seal
+certs (see the bootstrap docstring). DEMO is closer to PROD and may
+require a qualified cert (SZAFIR or equivalent) instead — this repo has
+not been exercised end-to-end against DEMO, so if a bootstrap run fails
+at the XAdES signature step with a 4xx from `/auth/xades-signature`,
+the most likely cause is cert policy, not our signing code. Obtain a
+qualified cert via the KSeF taxpayer panel before troubleshooting.
+
+Note that the KSeF sandbox has daily maintenance windows around 16:00–18:00
+Europe/Warsaw; failures during that window are environmental, not bugs.
+
+### Live smoke tests
+
+For cases where you want to exercise the FULL submission pipeline
+across multiple flow categories in one shot (not just the single
+happy-path case that `clj -X:test` covers via `integration_test.clj`),
+there is a dedicated `:live` alias:
+
+    source /tmp/claude-10000/ksef-env.sh   # or your own env file
+    clj -X:live
+
+This runs the live-smoke battery in `live/invoices/ksef/live_smoke.clj`.
+Two environments are exercised when credentials are available:
+
+ * **TEST** (`api-test.ksef.mf.gov.pl`) — protocol edge cases. The
+   headline test is duplicate-detection: the battery submits the same
+   invoice twice and asserts KSeF returns error 440 on the second
+   submission, verifying that our `session.clj` correctly extracts the
+   `originalKsefNumber` from `[:status :extensions :originalKsefNumber]`.
+ * **DEMO** (`api-demo.ksef.mf.gov.pl`) — real-world flow coverage.
+   One submission per flow category: non-EU `:np`, Polish mixed VAT
+   rates (23/8/5), intra-EU `:np-eu`, Polish `:zw`, and a plain
+   single-line 23% sanity check.
+
+Credentials are read from two independent env-var triples:
+
+    export KSEF_TEST_TOKEN=<test-token>
+    export KSEF_TEST_NIP=<nip>
+    export KSEF_TEST_BASE=https://api-test.ksef.mf.gov.pl/v2
+
+    export KSEF_DEMO_TOKEN=<demo-token>
+    export KSEF_DEMO_NIP=<nip>
+    export KSEF_DEMO_BASE=https://api-demo.ksef.mf.gov.pl/v2
+
+If either triple is incomplete, that environment's battery is skipped
+with a single log line and the run continues. If BOTH triples are
+missing, `clj -X:live` exits cleanly without touching the network —
+this is a deliberate guardrail so the alias is safe to leave in place
+on machines that shouldn't submit to the Ministry of Finance at all.
+
+The battery is deliberately kept OUT of `clj -X:test` (via its own
+`live/` source path) so the unit-test run stays fast and network-free.
+Expect a full run to take roughly 1–3 minutes per environment depending
+on sandbox latency.
+
+Every run appends its structured report to
+`/home/claude/data/team-logs/ksef-integration.md` under a dated
+`### Live-smoke run <iso-timestamp>` header, so the team log retains
+a linear history of every submission and every captured ksefNumber.
+The KSeF token is a **bearer credential** — never commit the env file
+and never run `clj -X:live` with PROD credentials as an experiment.
+The alias talks to sandboxes only because you pointed it at sandboxes
+via the `KSEF_*_BASE` vars; there is no `:prod` safety rail beyond
+"don't set the base URL to prod."
+
+### Security
+
+The KSeF token is a bearer credential — anyone with the token string can submit
+invoices in your name. Treat it like a password:
+
+ * Keep it in an environment variable or a secrets manager.
+ * Never commit it to git and never put it in `config.edn`.
+ * Rotate it if it may have been exposed.
+ * The tool reads the token into memory for the duration of a submission and never writes it to disk.
+
+### Demo configs
+
+There is a set of realistic demo configs under `demo/configs/` you can
+use to eyeball the full pipeline end to end — PDF rendering, FA(3) XML
+generation, and (optionally) KSeF submission. The configs cover the
+Polish-contractor-to-US-company `:vat :np` case (the primary use case),
+a domestic Polish invoice, a domestic Polish invoice with a KSeF block,
+an intra-EU B2B case, and a "every VAT bucket at once" stress fixture.
+
+Run them with:
+
+    demo/run.sh                        # list available configs
+    demo/run.sh non-eu-services        # run one
+    demo/run.sh --all                  # run every config
+
+Each run drops artifacts under `demo/outputs/<config>/` (gitignored).
+A companion golden test at `test/invoices/demo_test.clj` compares the
+generated FA(3) XML against committed fixtures in `demo/golden/` so
+drift in the generator is loud. See `demo/README.md` and
+`demo/CHECKLIST.md` for the full workflow and the manual eyeball list.
 
 ## Callbacks
 

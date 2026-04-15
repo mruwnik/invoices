@@ -4,7 +4,30 @@
           :nip 1234567890
           :phone 876543216
           :account "65 2345 1233 1233 4322 3211 4567"
-          :bank "Skok hop"}
+          :bank "Skok hop"
+          ;; Recommended: define :ksef once at the seller level; every invoice
+          ;; in this config inherits it. :nip defaults from :seller :nip.
+          ;;
+          ;; Two ways to supply the KSeF access token — pick whichever fits
+          ;; your deployment. Both may be set simultaneously.
+          ;;
+          ;; (a) Env-var indirection (clean for shared configs / CI):
+          ;; :ksef {:env :test                ; :test | :demo | :prod
+          ;;        :token-env "KSEF_TOKEN"   ; name of env var holding the secret
+          ;;        :schema :fa-3}
+          ;;
+          ;; (b) Literal in-config (fine for single-machine setups where the
+          ;;     config file already has appropriate filesystem permissions —
+          ;;     the token is as readable as the file itself):
+          ;; :ksef {:env :test
+          ;;        :token "20260415-EC-...|nip-...|..."
+          ;;        :schema :fa-3}
+          ;;
+          ;; (c) Both: env-var wins when set; literal is the fallback. Lets
+          ;;     operators override the literal at runtime without touching
+          ;;     the config file.
+          ;; :ksef {:env :test :token "<literal-fallback>" :token-env "KSEF_TOKEN" :schema :fa-3}
+          }
  :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
  :invoices [{:buyer {:name "Buty S.A."
                     :email "faktury@buty.sa"
@@ -18,6 +41,11 @@
                     ;; {:vat 23 :function (* :worked (+ 1 2 3 (- 23 13))) :title "Pucowania obuwia" :worklog :item1} ; this will cause an error if no :item1 worklog can be found
                     {:vat 23 :base 4300.00 :per-day 4 :title "Praca za ladą" :worklog :item2}]
              ;; :smtp {:host "smtp.gmail.com" :user "mr.blobby@buty.sa" :pass "asd;l;kjsdfkljld" :ssl true}
+             ;; Per-invoice :ksef override (legacy shape) still works and
+             ;; merges over the seller-level block. Use :ksef nil to opt
+             ;; one invoice out of KSeF submission while others submit.
+             ;; :ksef {:env :prod}   ; override just :env, inherit token-env/schema/nip
+             ;; :ksef nil            ; explicit opt-out for this invoice only
              }]
  :worklogs [
             ;; {:type :jira

@@ -1,0 +1,36 @@
+;; DEMO: Same as polish-domestic.edn, plus a :ksef block so the invoice
+;; is submitted to the KSeF TEST sandbox after the PDF renders.
+;;
+;; Requires `KSEF_TEST_TOKEN` to be exported in the environment — if it
+;; isn't, the tool logs a skip line and still generates the PDF. The
+;; token is read at runtime from `System/getenv`; it is never committed
+;; to this file or to config.edn.
+;;
+;; Expect two sidecars next to the PDF on a successful submission:
+;;   <title>.ksef.xml — the FA(3) document that was sent
+;;   <title>.upo.xml  — the UPO (official receipt) returned by KSeF
+;;
+;; The :env is hard-pinned to :test so this demo is safe to run against
+;; the sandbox. Never change this to :prod in a demo config.
+
+{:seller {:name "Mr. Blobby Consulting"
+          :address "ul. Warszawska 12, 00-001 Warszawa"
+          :nip 1234567890
+          :account "12 3456 7890 1234 5678 9012 3456"
+          :bank "Bank PKO BP"
+          :email "mr.blobby@example.com"
+          :phone 555123456
+          :ksef {:env :test
+                 :token-env "KSEF_TEST_TOKEN"
+                 :schema :fa-3}}
+ :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+ :invoices [{:buyer {:name "Buty S.A."
+                     :address "ul. Szewska 32, 76-543 Bakow"
+                     :nip 9875645342
+                     :email "faktury@buty.example"}
+             :currency "PLN"
+             :items [{:vat 23 :netto 1200.00M :title "Konsultacje IT"}
+                     {:vat 8  :netto 450.00M  :title "Remont biura"}
+                     {:vat 5  :netto 200.00M  :title "Materialy biurowe"}
+                     {:vat :zw :netto 100.00M :title "Uslugi zwolnione z VAT"
+                      :notes ["Podstawa zwolnienia z VAT: art. 113 ust. 1 i 9 Ustawa o VAT"]}]}]}

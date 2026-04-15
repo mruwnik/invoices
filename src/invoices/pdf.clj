@@ -14,12 +14,40 @@
 (defn format-param [param] [:cell.param {:align :right} (str param ":  ")])
 (defn format-value [value] [:cell {:colspan 2} (str value)])
 
+(defn vat-label
+  "Display label for a stawka VAT column. Integers render as `N%`, keyword
+  classifications render with their conventional Polish label. nil means
+  legacy-exempt (zw.)."
+  [vat-level]
+  (cond
+    (nil? vat-level)    "zw."
+    (= :zw vat-level)   "zw."
+    (= :np vat-level)   "np I"
+    (= :np-eu vat-level) "np II"
+    :else (str vat-level "%")))
+
+(defn vat-sort-key
+  "Total ordering over the heterogeneous `:vat` domain used for summary
+  rows: nil first (matching the legacy `(sort [8 nil])` → `(nil 8)`
+  order), then numeric rates ascending, then keyword classifications
+  in a stable canonical order. Mixed `:vat` across keywords and
+  integers would otherwise crash `sort` because Clojure's default
+  comparator can't compare Long to Keyword."
+  [vat-level]
+  (cond
+    (nil? vat-level)     [0]
+    (number? vat-level)  [1 vat-level]
+    (= :zw vat-level)    [2 0]
+    (= :np vat-level)    [2 1]
+    (= :np-eu vat-level) [2 2]
+    :else                [2 3 (str vat-level)]))
+
 (defn format-product [{netto :netto vat-level :vat title :title :as item}]
   (concat
    [[:cell {:colspan 4} title]]
    (map str [1
              (-> netto round str)
-             (if-not vat-level "zw." (str vat-level "%"))
+             (vat-label vat-level)
              (-> item vat round str)
              (brutto item)])))
 
@@ -29,7 +57,7 @@
    [[:cell {:background-color [84 219 229] :set-border [] :colspan 5 :align :center} text]
     (format-total items (constantly 1))
     (format-total items :netto)
-    ({:total "wszystkie" nil "zw."} vat-level (str vat-level "%"))
+    (get {:total "wszystkie"} vat-level (vat-label vat-level))
     (format-total items vat)
     (format-total items brutto)
     ]))
@@ -103,7 +131,8 @@
           (map format-product)
           (map-indexed #(concat [(inc %1)] %2)))
      [(format-summary items :total (str "Razem do zapłaty: " (total items brutto) " PLN"))]
-     (->> items (map :vat) distinct sort (map (partial format-summary items))))
+     (->> items (map :vat) distinct (sort-by vat-sort-key)
+          (map (partial format-summary items))))
 
    [:table {:border false :padding 0 :spacing 0 :num-cols 6}
     [(format-param "Zapłacono") (format-value "0.00 PLN")
@@ -111,10 +140,32 @@
 
    ])
 
+(def ^:private np-pdf-note
+  "Usługa nie podlega opodatkowaniu VAT na terytorium RP — miejsce świadczenia ustalone zgodnie z art. 28b ustawy z dnia 11 marca 2004 r. o podatku od towarów i usług.")
+
+(def ^:private np-eu-pdf-note
+  "Świadczenie usług, o których mowa w art. 100 ust. 1 pkt 4 ustawy z dnia 11 marca 2004 r. o podatku od towarów i usług — miejsce świadczenia poza terytorium RP, zgodnie z art. 28b.")
+
+(defn- np-auto-notes
+  "For invoices that include np / np-eu items, automatically prepend the
+  legal-basis citation to the Uwagi block. The user must not have to
+  remember to add it manually — the tax classification is visible in
+  the `:vat` key and the note follows from it."
+  [items]
+  (let [vats (set (map :vat items))]
+    (cond-> []
+      (contains? vats :np)    (conj np-pdf-note)
+      (contains? vats :np-eu) (conj np-eu-pdf-note))))
+
 (defn add-notes
-  "Some items require extra notes to be added (for various legal reasons)"
+  "Some items require extra notes to be added (for various legal reasons).
+  For np/np-eu classifications the citation is generated automatically
+  from the `:vat` keyword — the user should not have to copy-paste it."
   [body items]
-  (->> items (map :notes) (remove nil?) flatten distinct format-notes (conj body)))
+  (let [explicit (->> items (map :notes) (remove nil?) flatten)
+        auto (np-auto-notes items)
+        all-notes (distinct (concat auto explicit))]
+    (conj body (format-notes all-notes))))
 
 
 (defn render [{seller :seller buyer :buyer items :items font-path :font-path :as invoice} when number]
