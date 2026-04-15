@@ -77,6 +77,27 @@
                         1))
       (is (false? @called?) "submit-to-ksef not invoked when invoice opts out with :ksef nil"))))
 
+(deftest run-callback-swallows-spawn-errors
+  (testing "when sh throws (missing binary, bad args, etc.) the callback
+            is reported as failed but run-callback returns normally — a
+            broken callback must not abort the invoice or sibling callbacks"
+    (with-redefs [clojure.java.shell/sh (fn [& _] (throw (java.io.IOException. "no such executable")))]
+      (let [result (core/run-callback "/tmp/whatever.pdf" ["nonexistent-bin" "--arg"])]
+        (is (map? result))
+        (is (not= 0 (:exit result)))
+        (is (re-find #"no such executable" (:err result))
+            "the thrown message must surface in :err for post-run inspection"))))
+  (testing "a callback that returns non-zero exit is reported but also returns normally"
+    (with-redefs [clojure.java.shell/sh (fn [& _] {:exit 2 :out "" :err "boom"})]
+      (let [result (core/run-callback "/tmp/whatever.pdf" ["failing-bin"])]
+        (is (= 2 (:exit result)))
+        (is (= "boom" (:err result))))))
+  (testing "a nil-message throwable falls back to the class simple name"
+    (with-redefs [clojure.java.shell/sh (fn [& _] (throw (NullPointerException.)))]
+      (let [result (core/run-callback "/tmp/x.pdf" ["bin"])]
+        (is (not= 0 (:exit result)))
+        (is (re-find #"NullPointerException" (:err result)))))))
+
 (deftest process-invoices-survives-ksef-failure
   (testing "a throwing ksef chain on invoice N does not interrupt N+1"
     (let [pdf-renders (atom 0)

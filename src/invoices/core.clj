@@ -14,14 +14,27 @@
 (defn invoice-number [when number]
   (->> [(or number 1) (-> when .getMonthValue) (-> when .getYear)] (map str) (str/join "/")))
 
-(defn run-callback [file callback]
+(defn run-callback
+  "Run an external callback command against `file`, logging success or
+  failure. Never throws: a callback that can't even be spawned (missing
+  binary, permission denied, bad path) is reported with a line starting
+  `X` and the exception message, just like a non-zero exit. Sibling
+  callbacks and sibling invoices must keep running regardless."
+  [file callback]
   (let [command (concat callback [file])
-        str-command (str/join " " command)
-        result (apply sh command)]
-    (if (= (:exit result) 0)
-      (println "    *" str-command)
-      (println "    X" str-command ":\n" (:err result)))
-    (assoc result :command str-command)))
+        str-command (str/join " " command)]
+    (try
+      (let [result (apply sh command)]
+        (if (= (:exit result) 0)
+          (println "    *" str-command)
+          (println "    X" str-command ":\n" (:err result)))
+        (assoc result :command str-command))
+      (catch Throwable t
+        (println "    X" str-command ":\n"
+                 (or (.getMessage t) (.getSimpleName (class t))))
+        {:exit -1
+         :err (str (or (.getMessage t) (.getSimpleName (class t))))
+         :command str-command}))))
 
 (defn run-callbacks [invoice callbacks]
   (doall (map (partial run-callback invoice) callbacks)))
