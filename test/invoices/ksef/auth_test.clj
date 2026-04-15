@@ -155,6 +155,33 @@
                               (auth/poll-auth-status base-url "REF-42" "op"
                                                      :interval-ms 1 :timeout-ms 5)))))))
 
+(deftest poll-auth-status-missing-code-test
+  (testing "response with no [:status :code] fails fast instead of re-polling
+            silently until timeout — turns an API contract violation from a
+            confusing timeout into a clearly-named error"
+    (let [calls (atom [])
+          responses (atom {(str base-url "/auth/REF-42")
+                           (json-body {})})] ;; empty body, no :status key at all
+      (with-redefs [http/get (stub-get responses calls)]
+        (let [thrown (try (auth/poll-auth-status base-url "REF-42" "op"
+                                                 :interval-ms 1 :timeout-ms 5000)
+                          nil
+                          (catch Exception e e))]
+          (is (some? thrown))
+          (is (re-find #"missing status.code" (.getMessage thrown)))
+          (is (= "REF-42" (:reference-number (ex-data thrown)))))
+        (is (= 1 (count @calls))
+            "must fail on the FIRST poll — no re-polling a known-broken response"))))
+
+  (testing "nil body also fails fast (not a timeout)"
+    (let [calls (atom [])
+          responses (atom {(str base-url "/auth/REF-42")
+                           (json-body nil)})]
+      (with-redefs [http/get (stub-get responses calls)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"missing status.code"
+                              (auth/poll-auth-status base-url "REF-42" "op"
+                                                     :interval-ms 1 :timeout-ms 5000)))))))
+
 (deftest redeem-tokens-test
   (testing "extracts both token strings and their validUntil from nested response"
     (let [calls (atom [])

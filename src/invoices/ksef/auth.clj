@@ -92,7 +92,14 @@
 (defn poll-auth-status
   "GET /auth/{referenceNumber} every `interval-ms` until status.code is 200
   (success), or a non-100 non-200 code (failure), or the deadline is hit.
-  Throws on failure or timeout."
+  Throws on failure or timeout.
+
+  Also fails fast when the poll response has no `[:status :code]` at all:
+  previously a malformed or empty body would fall through to the `:else`
+  branch and silently re-poll until timeout, producing a confusing
+  'timeout' error for what is actually an API-contract violation. We'd
+  rather the incident log say 'auth response missing status.code' than
+  'auth timed out' in that case."
   [base-url reference-number auth-token
    & {:keys [interval-ms timeout-ms]
       :or {interval-ms 1000 timeout-ms 60000}}]
@@ -103,6 +110,9 @@
             code (get-in body [:status :code])]
         (cond
           (= code success-code) body
+          (nil? code) (throw (ex-info "KSeF auth response missing status.code"
+                                      {:reference-number reference-number
+                                       :body body}))
           (terminal-failure? code) (throw (ex-info "KSeF authentication failed"
                                                    {:status (:status body)}))
           (>= (System/currentTimeMillis) deadline)
