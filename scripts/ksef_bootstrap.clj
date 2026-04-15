@@ -50,7 +50,9 @@
   (:require [cheshire.core :as json]
             [clj-http.client :as http]
             [clojure.string :as str])
-  (:import [java.io ByteArrayInputStream ByteArrayOutputStream StringReader]
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream File StringReader]
+           [java.nio.file Files Paths]
+           [java.nio.file.attribute PosixFilePermissions]
            [java.security KeyFactory MessageDigest Security]
            [java.security.cert CertificateFactory X509Certificate]
            [java.security.spec PKCS8EncodedKeySpec]
@@ -372,6 +374,76 @@
       (throw (ex-info "create ksef token failed" resp)))
     (:body resp)))
 
+;; ---------- Env file merge ----------
+
+(def ^:private test-token-line-pattern
+  #"export KSEF_TEST_(TOKEN|NIP|BASE)=.*")
+
+(defn- format-export [^String k v]
+  (str "export KSEF_TEST_" k "='" v "'"))
+
+(defn merge-test-token-lines
+  "Merge fresh KSEF_TEST_{TOKEN,NIP,BASE} values into an existing env-file
+  string, preserving every other line verbatim. Pure — no I/O.
+
+  `existing` is the current file contents (or nil / blank for a new file).
+  `values` is `{:token ..., :nip ..., :base-url ...}`.
+
+  Lines matching `export KSEF_TEST_(TOKEN|NIP|BASE)=...` are replaced in
+  place. Any of the three keys not present in `existing` are appended at
+  the end under a short dated header. Everything else — comments, other
+  exports (KSEF_DEMO_*, _JAVA_OPTIONS, CLJ_CONFIG, ...) — is preserved.
+
+  CRLF input is normalized to LF on output. When `existing` is nil/blank,
+  emits a fresh minimal file with a short header comment and the three
+  exports."
+  [^String existing {:keys [token nip base-url]}]
+  (let [targets {"TOKEN" (format-export "TOKEN" token)
+                 "NIP"   (format-export "NIP" nip)
+                 "BASE"  (format-export "BASE" base-url)}
+        today   (str (java.time.LocalDate/now))]
+    (if (str/blank? existing)
+      (str/join "\n"
+                ["# KSeF test credentials — minted via scripts/ksef_bootstrap.clj"
+                 (str "# Last update: " today)
+                 "# Never commit this file."
+                 (get targets "TOKEN")
+                 (get targets "NIP")
+                 (get targets "BASE")
+                 ""])
+      (let [lines    (str/split existing #"\r?\n" -1)
+            seen     (atom #{})
+            replaced (mapv (fn [line]
+                             (if-let [[_ k] (re-matches test-token-line-pattern line)]
+                               (do (swap! seen conj k) (get targets k))
+                               line))
+                           lines)
+            missing  (remove @seen ["TOKEN" "NIP" "BASE"])]
+        (if (empty? missing)
+          (str/join "\n" replaced)
+          ;; Drop a single trailing "" (from a final newline in `existing`) so
+          ;; the appended header sits one blank line below the prior content
+          ;; instead of two.
+          (let [trimmed (cond-> replaced
+                          (and (seq replaced) (= "" (peek replaced))) pop)]
+            (str/join "\n"
+                      (concat trimmed
+                              [""
+                               (str "# KSeF test credentials appended via scripts/ksef_bootstrap.clj on " today)]
+                              (map #(get targets %) missing)))))))))
+
+(defn- write-env-file!
+  "Write `content` to `path` and chmod 600. Best-effort on non-POSIX
+  filesystems (swallows UnsupportedOperationException so Windows dev
+  still works)."
+  [^String path ^String content]
+  (spit path content)
+  (try
+    (Files/setPosixFilePermissions
+      (Paths/get path (into-array String []))
+      (PosixFilePermissions/fromString "rw-------"))
+    (catch UnsupportedOperationException _ nil)))
+
 (defn bootstrap [{:keys [base-url nip cert-pem-path key-pem-path out-env-file]}]
   (println "== Bootstrap KSeF test token via XAdES-BES ==")
   (println " base-url:" base-url)
@@ -411,11 +483,14 @@
         _ (println "  ksef-token response:" (pr-str ksef-tok-resp))
         tok-str (:token ksef-tok-resp)]
     (when (and tok-str out-env-file)
-      (spit out-env-file
-            (str "export KSEF_TEST_TOKEN='" tok-str "'\n"
-                 "export KSEF_TEST_NIP='" nip "'\n"
-                 "export KSEF_TEST_BASE='" base-url "'\n"))
-      (println "  wrote" out-env-file))
+      (let [f (File. ^String out-env-file)
+            existing (when (.exists f) (slurp f))
+            merged (merge-test-token-lines
+                     existing
+                     {:token tok-str :nip nip :base-url base-url})]
+        (write-env-file! out-env-file merged)
+        (println "  wrote" out-env-file
+                 (if existing "(merged)" "(new)"))))
     (println "== DONE ==")
     ksef-tok-resp))
 
