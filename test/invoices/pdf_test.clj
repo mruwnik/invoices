@@ -190,6 +190,33 @@
     (let [formatted (vec (format-product {:netto 1000 :vat :zw :title "Z"}))]
       (is (= "zw." (nth formatted 3))))))
 
+(deftest vat-sort-key-total-ordering
+  (testing "nil sorts before numeric rates (preserves legacy (sort [8 nil]) → (nil 8))"
+    (is (= [nil 8] (sort-by vat-sort-key [8 nil])))
+    (is (= [nil 0 8 23] (sort-by vat-sort-key [23 nil 0 8]))))
+
+  (testing "numerics sort ascending"
+    (is (= [0 5 8 23] (sort-by vat-sort-key [23 0 8 5]))))
+
+  (testing "keywords sort in canonical order (:zw < :np < :np-eu)"
+    (is (= [:zw :np :np-eu] (sort-by vat-sort-key [:np-eu :np :zw])))
+    (is (= [:zw :np] (sort-by vat-sort-key [:np :zw]))))
+
+  (testing "mixed int + keyword: nil, numerics ascending, then keywords canonical"
+    (is (= [nil 8 23 :zw :np :np-eu]
+           (sort-by vat-sort-key [:np 23 nil :np-eu 8 :zw])))
+    (is (= [23 :np]        (sort-by vat-sort-key [:np 23])))
+    (is (= [8 :np-eu]      (sort-by vat-sort-key [:np-eu 8]))))
+
+  (testing "sort is idempotent (stable total ordering)"
+    (let [input [23 :np 8 nil :np-eu :zw 0]
+          once  (sort-by vat-sort-key input)
+          twice (sort-by vat-sort-key once)]
+      (is (= once twice))))
+
+  (testing "heterogeneous input never throws ClassCast (regression from 8d9c48d)"
+    (is (some? (sort-by vat-sort-key [23 :np 8 :np-eu :zw 0 nil])))))
+
 (deftest add-notes-auto-prepends-np-legal-basis
   (testing ":vat :np item triggers automatic art. 28b legal-basis note"
     (let [result (add-notes [:table] [{:vat :np :netto 100 :title "x"}])
