@@ -167,16 +167,21 @@
       (doseq [c @calls]
         (is (= "Bearer ACCESS-123" (bearer-value c)))))))
 
-(deftest poll-session-processed-failure-test
-  (testing "terminal non-1xx non-200 code throws ex-info"
+(deftest poll-session-processed-failure-returns-body-test
+  (testing "terminal non-1xx non-200 code returns the body unchanged — the caller
+            (submit-invoice) inspects it to decide whether a per-invoice fallback
+            lookup can recover an `originalKsefNumber`. Historically this threw
+            ex-info, which made the duplicate-detection fallback path dead code."
     (let [calls (atom [])
+          failure-body {:status {:code 445 :description "Brak poprawnych faktur"}
+                        :invoiceCount 1 :failedInvoiceCount 1}
           responses (atom {(str base-url "/sessions/SES-1")
-                           (json-body {:status {:code 440 :description "Duplikat faktury"}})})]
+                           (json-body failure-body)})]
       (with-redefs [http/get (stub-get responses calls)]
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"session failed"
-                              (session/poll-session-processed
-                                base-url access-token "SES-1"
-                                :interval-ms 1 :timeout-ms 5000)))))))
+        (is (= failure-body
+               (session/poll-session-processed
+                 base-url access-token "SES-1"
+                 :interval-ms 1 :timeout-ms 5000)))))))
 
 (deftest poll-session-processed-timeout-test
   (testing "stays in 1xx past deadline → throws timeout ex-info"
@@ -326,6 +331,107 @@
                                                         :invoice-xml invoice-xml
                                                         :poll-interval-ms 1
                                                         :poll-timeout-ms 5000})))))))
+
+(deftest submit-invoice-duplicate-fallback-test
+  (testing "session fails with 445 (brak poprawnych faktur), per-invoice lookup
+            returns 440 (Duplikat faktury) carrying the originalKsefNumber.
+            submit-invoice must (a) NOT throw from the session failure,
+            (b) extract the originalKsefNumber, (c) skip the UPO fetch
+            entirely — KSeF only serves UPO for the original submission,
+            not the duplicate — and (d) return the fallback number with
+            :upo-xml nil. This is the Renarin-flagged latent path."
+    (let [invoice-xml "<Faktura/>"
+          calls (atom [])
+          original-ksef "5265877635-20250826-0100001AF629-AF"
+          certs-url  (str base-url "/security/public-key-certificates")
+          open-url   (str base-url "/sessions/online")
+          send-url   (str base-url "/sessions/online/SES-DUP/invoices")
+          close-url  (str base-url "/sessions/online/SES-DUP/close")
+          status-url (str base-url "/sessions/SES-DUP")
+          inv-url    (str base-url "/sessions/SES-DUP/invoices/INV-DUP")
+          upo-url    (str base-url "/sessions/SES-DUP/invoices/INV-DUP/upo")
+          upo-called? (atom false)
+          gets (atom {certs-url  (json-body [{:usage ["SymmetricKeyEncryption"] :certificate "DER"}])
+                      status-url (json-body {:status {:code 445
+                                                      :description "Brak poprawnych faktur"}
+                                              :invoiceCount 1
+                                              :failedInvoiceCount 1})
+                      inv-url    (json-body {:referenceNumber "INV-DUP"
+                                              :ksefNumber nil
+                                              :status {:code 440
+                                                       :description "Duplikat faktury"
+                                                       :extensions {:originalKsefNumber original-ksef
+                                                                    :originalSessionReferenceNumber "SES-ORIG"}}})
+                      upo-url    (fn [_] (reset! upo-called? true)
+                                   (throw (ex-info "UPO must not be fetched on duplicate path" {})))})
+          posts (atom {open-url  (json-body {:referenceNumber "SES-DUP"})
+                       send-url  (json-body {:referenceNumber "INV-DUP"})
+                       close-url {:status 204}})]
+      (with-redefs [http/get  (stub-get gets calls)
+                    http/post (stub-post posts calls)
+                    crypto/parse-x509-cert-der (fn [_] ::fake-pk)
+                    crypto/generate-aes-key (fn [] (reify javax.crypto.SecretKey
+                                                     (getEncoded [_] (byte-array 32 (byte 0)))
+                                                     (getAlgorithm [_] "AES")
+                                                     (getFormat [_] "RAW")))
+                    crypto/generate-iv (fn [] (byte-array 16 (byte 0)))
+                    crypto/rsa-oaep-sha256-encrypt (fn [_ _] (byte-array [1]))
+                    crypto/aes-256-cbc-encrypt (fn [_ _ pt] pt)]
+        (let [result (session/submit-invoice {:base-url base-url
+                                                :access-token access-token
+                                                :invoice-xml invoice-xml
+                                                :poll-interval-ms 1
+                                                :poll-timeout-ms 5000})]
+          (is (= original-ksef (:ksef-number result)))
+          (is (nil? (:upo-xml result)) ":upo-xml nil on duplicate — no UPO exists")
+          (is (= "INV-DUP" (:invoice-ref result)))
+          (is (= "SES-DUP" (:session-ref result)))))
+      (is (false? @upo-called?)
+          "UPO endpoint must not be called when the session failed — KSeF would 404")
+      (testing "endpoints hit in order — UPO is absent"
+        (is (= [certs-url open-url send-url close-url status-url inv-url]
+               (mapv :url @calls)))))))
+
+(deftest submit-invoice-session-failed-no-fallback-test
+  (testing "session fails AND no fallback ksefNumber on the per-invoice record →
+            submit-invoice throws ex-info carrying both statuses for debugging"
+    (let [invoice-xml "<Faktura/>"
+          calls (atom [])
+          gets (atom {(str base-url "/security/public-key-certificates")
+                      (json-body [{:usage ["SymmetricKeyEncryption"] :certificate "DER"}])
+                      (str base-url "/sessions/SES-X")
+                      (json-body {:status {:code 445 :description "Brak poprawnych faktur"}})
+                      (str base-url "/sessions/SES-X/invoices/INV-X")
+                      (json-body {:referenceNumber "INV-X"
+                                  :status {:code 430 :description "Walidacja biznesowa"}})})
+          posts (atom {(str base-url "/sessions/online")
+                       (json-body {:referenceNumber "SES-X"})
+                       (str base-url "/sessions/online/SES-X/invoices")
+                       (json-body {:referenceNumber "INV-X"})
+                       (str base-url "/sessions/online/SES-X/close")
+                       {:status 204}})]
+      (with-redefs [http/get  (stub-get gets calls)
+                    http/post (stub-post posts calls)
+                    crypto/parse-x509-cert-der (fn [_] ::fake-pk)
+                    crypto/generate-aes-key (fn [] (reify javax.crypto.SecretKey
+                                                     (getEncoded [_] (byte-array 32 (byte 0)))
+                                                     (getAlgorithm [_] "AES")
+                                                     (getFormat [_] "RAW")))
+                    crypto/generate-iv (fn [] (byte-array 16 (byte 0)))
+                    crypto/rsa-oaep-sha256-encrypt (fn [_ _] (byte-array [1]))
+                    crypto/aes-256-cbc-encrypt (fn [_ _ pt] pt)]
+        (try
+          (session/submit-invoice {:base-url base-url
+                                    :access-token access-token
+                                    :invoice-xml invoice-xml
+                                    :poll-interval-ms 1
+                                    :poll-timeout-ms 5000})
+          (is false "expected ex-info, got clean return")
+          (catch clojure.lang.ExceptionInfo e
+            (is (re-find #"no fallback ksefNumber" (.getMessage e)))
+            (let [data (ex-data e)]
+              (is (= 445 (get-in data [:session-status :code])))
+              (is (= 430 (get-in data [:invoice-status :status :code]))))))))))
 
 ;; ---------- composed auth → session (Renarin mock-depth rule) ----------
 

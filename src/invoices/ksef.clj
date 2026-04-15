@@ -30,11 +30,14 @@
   (str/replace (.getPath pdf-file) #"\.pdf$" suffix))
 
 (defn- write-sidecars!
-  "Spit `<pdf>.ksef.xml` and `<pdf>.upo.xml` next to the PDF. Any I/O error
-  propagates and is caught by the outer try in `submit-to-ksef`."
+  "Spit `<pdf>.ksef.xml` and — if present — `<pdf>.upo.xml` next to the PDF.
+  `upo-xml` can be nil on the duplicate-detection path, where KSeF returns the
+  original ksefNumber but no fresh UPO. Any I/O error propagates and is caught
+  by the outer try in `submit-to-ksef`."
   [pdf-file invoice-xml upo-xml]
   (spit (sidecar-path pdf-file ".ksef.xml") invoice-xml)
-  (spit (sidecar-path pdf-file ".upo.xml") upo-xml))
+  (when upo-xml
+    (spit (sidecar-path pdf-file ".upo.xml") upo-xml)))
 
 (defn resolve-ksef-config
   "Combine seller-level and invoice-level `:ksef` blocks into an effective

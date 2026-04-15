@@ -131,23 +131,34 @@
   (and (= session-success-code (get-in body [:status :code]))
        (seq (get-in body [:upo :pages]))))
 
+(defn- session-terminal? [body]
+  (or (session-processed? body)
+      (session-terminal-failure? (get-in body [:status :code]))))
+
 (defn poll-session-processed
   "Poll `GET /sessions/{sessionRef}` every `interval-ms` until session reaches
-  a terminal state. Terminal success: `body.status.code == 200` AND `upo.pages`
-  is non-empty (UPO generation has finished). Terminal failure: non-1xx non-200
-  status code. Throws on failure or timeout."
+  a terminal state, then return the final body. Two terminal shapes exist:
+
+    * **Success**: `body.status.code == 200` AND `upo.pages` non-empty
+      (UPO generation has finished). `session-processed?` returns true.
+    * **Failure**: non-1xx non-200 `status.code` (e.g. 445 \"brak poprawnych
+      faktur\" when every invoice in the session was rejected — including the
+      duplicate-detection path). `session-processed?` returns false. Caller
+      is expected to inspect the body and decide whether per-invoice fallback
+      data is available (the `submit-invoice` flow reads
+      `[:status :extensions :originalKsefNumber]` to recover the original
+      ksefNumber on a 440 duplicate).
+
+  Throws only on timeout — terminal failures are now part of the normal
+  return shape so the duplicate-detection recovery path can run."
   [base-url access-token session-ref
    & {:keys [interval-ms timeout-ms]
       :or {interval-ms 2000 timeout-ms 120000}}]
   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
     (loop []
-      (let [body (fetch-session-status base-url access-token session-ref)
-            code (get-in body [:status :code])]
+      (let [body (fetch-session-status base-url access-token session-ref)]
         (cond
-          (session-processed? body) body
-          (session-terminal-failure? code)
-          (throw (ex-info "KSeF session failed"
-                          {:session-ref session-ref :status (:status body)}))
+          (session-terminal? body) body
           (>= (System/currentTimeMillis) deadline)
           (throw (ex-info "Timed out waiting for KSeF session processing"
                           {:session-ref session-ref :last-status (:status body)}))
@@ -210,6 +221,14 @@
 
 (defn- byte-count ^long [^bytes bs] (alength bs))
 
+(defn- try-fetch-invoice-status
+  "Wrap `fetch-invoice-status` so the fallback path in `submit-invoice`
+  never swallows a working ksefNumber just because the per-invoice lookup
+  itself blew up. Returns nil on any HTTP/parse error."
+  [base-url access-token session-ref invoice-ref]
+  (try (fetch-invoice-status base-url access-token session-ref invoice-ref)
+       (catch Throwable _ nil)))
+
 (defn submit-invoice
   "Run the full online-session send flow for a single invoice.
 
@@ -220,9 +239,12 @@
     :schema       — `:fa-3` (default)
     :poll-interval-ms / :poll-timeout-ms — optional polling overrides
 
-  Returns `{:ksef-number ..., :upo-xml ..., :invoice-ref ..., :session-ref ...}`
-  on success. Throws ex-info on HTTP failure, malformed KSeF number, session
-  timeout, or per-invoice non-200 `status.code`."
+  Returns `{:ksef-number ..., :upo-xml ..., :invoice-ref ..., :session-ref ...}`.
+  On the duplicate-detection path (session code 445 + per-invoice 440) the
+  returned `:ksef-number` is the `originalKsefNumber` from the first submission
+  and `:upo-xml` is nil — KSeF only serves a UPO for the original, not the
+  duplicate. Throws ex-info on HTTP failure, malformed KSeF number, session
+  timeout, or when the session failed AND no fallback ksefNumber was present."
   [{:keys [base-url access-token invoice-xml schema
            poll-interval-ms poll-timeout-ms]
     :or {schema :fa-3}}]
@@ -246,20 +268,25 @@
                        :encrypted-invoice-size (byte-count ciphertext-bytes)
                        :encrypted-invoice-content (crypto/base64-encode ciphertext-bytes)})
         _ (close-session base-url access-token session-ref)
-        _ (poll-session-processed base-url access-token session-ref
-                                  :interval-ms (or poll-interval-ms 2000)
-                                  :timeout-ms (or poll-timeout-ms 120000))
-        invoice-status (fetch-invoice-status base-url access-token session-ref invoice-ref)
+        session-body (poll-session-processed base-url access-token session-ref
+                                             :interval-ms (or poll-interval-ms 2000)
+                                             :timeout-ms (or poll-timeout-ms 120000))
+        session-ok? (session-processed? session-body)
+        invoice-status (if session-ok?
+                         (fetch-invoice-status base-url access-token session-ref invoice-ref)
+                         (try-fetch-invoice-status base-url access-token session-ref invoice-ref))
         ksef-number (or (:ksefNumber invoice-status)
                         (get-in invoice-status [:status :extensions :originalKsefNumber]))]
     (when-not ksef-number
-      (throw (ex-info "KSeF session processed but no ksefNumber on invoice"
+      (throw (ex-info "KSeF session failed and no fallback ksefNumber available"
                       {:session-ref session-ref :invoice-ref invoice-ref
+                       :session-status (:status session-body)
                        :invoice-status invoice-status})))
     (when-not (valid-ksef-number? ksef-number)
       (throw (ex-info "KSeF returned a malformed numer KSeF"
                       {:ksef-number ksef-number})))
     {:ksef-number ksef-number
-     :upo-xml (fetch-invoice-upo base-url access-token session-ref invoice-ref)
+     :upo-xml (when session-ok?
+                (fetch-invoice-upo base-url access-token session-ref invoice-ref))
      :invoice-ref invoice-ref
      :session-ref session-ref}))
