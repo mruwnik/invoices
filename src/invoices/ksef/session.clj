@@ -224,10 +224,15 @@
 (defn- try-fetch-invoice-status
   "Wrap `fetch-invoice-status` so the fallback path in `submit-invoice`
   never swallows a working ksefNumber just because the per-invoice lookup
-  itself blew up. Returns nil on any HTTP/parse error."
+  itself blew up. Returns nil on any HTTP/parse error — but prints a
+  breadcrumb so 'we silently dropped into no-fallback' shows up as 'we
+  saw this specific exception and chose to continue' in incident logs."
   [base-url access-token session-ref invoice-ref]
   (try (fetch-invoice-status base-url access-token session-ref invoice-ref)
-       (catch Throwable _ nil)))
+       (catch Throwable t
+         (println (str "    - KSeF duplicate-fallback lookup failed: "
+                       (.getMessage t)))
+         nil)))
 
 (defn submit-invoice
   "Run the full online-session send flow for a single invoice.
