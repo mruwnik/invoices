@@ -125,6 +125,38 @@
                            " — expected one of " (keys base-urls))
                       {:env env}))))
 
+(def ^:private failure-detail-paths
+  "Ordered (path, label) pairs describing which fields `format-failure-details`
+  should lift out of a caught exception's ex-data. Covers both auth-level
+  failures (top-level `:status` from `invoices.ksef.auth/poll-auth-status`)
+  and session-level failures (`:session-status` / `:invoice-status` from
+  `invoices.ksef.session/submit-invoice`). A user who hit a stale-token 450
+  or a duplicate-detection 440/445 sees the specific KSeF code, description,
+  and details on stdout — no debugger required."
+  [[[:status :code]                 "code"]
+   [[:status :description]          "description"]
+   [[:status :details]               "details"]
+   [[:session-status :code]         "session code"]
+   [[:session-status :description]  "session description"]
+   [[:invoice-status :status :code] "invoice code"]
+   [[:reference-number]             "reference"]
+   [[:session-ref]                  "session-ref"]
+   [[:invoice-ref]                  "invoice-ref"]
+   [[:reason]                       "reason"]
+   [[:nip]                          "nip"]
+   [[:base-url]                     "base-url"]
+   [[:schema]                       "schema"]])
+
+(defn- format-failure-details
+  "Return a seq of pre-formatted indented lines, one per non-nil field from
+  `failure-detail-paths` present in `data`. Empty when `data` is nil or
+  carries none of the interesting fields."
+  [data]
+  (->> failure-detail-paths
+       (keep (fn [[path label]]
+               (when-let [v (get-in data path)]
+                 (str "      " label ": " v))))))
+
 (defn submit-to-ksef
   "Submit a single already-rendered invoice to KSeF. Never throws.
 
@@ -160,16 +192,5 @@
         (catch Throwable t
           (println (str "    - KSeF FAILED: "
                         (or (.getMessage t) (.getSimpleName (class t)))))
-          ;; Second line with structured detail from ex-info so oncall
-          ;; operators can tell a 440-duplicate (recoverable) from a
-          ;; 445-every-invoice-rejected (not) without re-running under
-          ;; a debugger. Only printed when the throwable carries useful
-          ;; context — dropping empty braces keeps the non-ex-info case
-          ;; visually quiet.
-          (let [data (ex-data t)
-                keep-keys [:session-ref :invoice-ref :session-status
-                           :invoice-status :reason :nip :base-url :schema]
-                subset (select-keys data keep-keys)]
-            (when (seq subset)
-              (println (str "      " (pr-str subset)))))
+          (run! println (format-failure-details (ex-data t)))
           nil)))))

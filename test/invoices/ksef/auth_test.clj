@@ -48,7 +48,32 @@
         (is (= {:challenge "abc-123" :timestamp-ms 1744659000000}
                (auth/fetch-challenge base-url))))
       (is (= 1 (count @calls)))
-      (is (= (str base-url "/auth/challenge") (:url (first @calls)))))))
+      (is (= (str base-url "/auth/challenge") (:url (first @calls))))
+      (testing ":cookie-policy :ignore is passed on every KSeF request so
+                HTTPClient doesn't warn about Incapsula's visid_incap_* cookies"
+        (is (= :ignore (get-in (first @calls) [:opts :cookie-policy])))))))
+
+(deftest cookie-policy-ignore-on-get-and-post
+  (testing "every KSeF clj-http call opts-in to :cookie-policy :ignore so
+            HTTPClient skips cookie parsing entirely. Discriminator: if a
+            future refactor drops the option from one helper, this test
+            fails with the specific endpoint that's missing it"
+    (let [calls (atom [])
+          posts (atom {(str base-url "/auth/challenge")
+                       (json-body {:challenge "c" :timestampMs 1})
+                       (str base-url "/auth/ksef-token")
+                       (json-body {:referenceNumber "R"
+                                   :authenticationToken {:token "op"}})})
+          gets (atom {(str base-url "/auth/R")
+                      (json-body {:status {:code 200}})})]
+      (with-redefs [http/post (stub-post posts calls)
+                    http/get  (stub-get gets calls)]
+        (auth/fetch-challenge base-url)
+        (auth/submit-ksef-token base-url {:challenge "c" :nip 1 :encrypted-token "e"})
+        (auth/poll-auth-status base-url "R" "op" :interval-ms 1 :timeout-ms 100))
+      (doseq [{:keys [url opts]} @calls]
+        (is (= :ignore (:cookie-policy opts))
+            (str "cookie-policy must be :ignore on " url))))))
 
 (deftest fetch-token-encryption-key-test
   (testing "picks the cert whose usage array contains KsefTokenEncryption"

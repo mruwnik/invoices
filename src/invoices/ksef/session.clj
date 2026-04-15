@@ -36,8 +36,14 @@
   "Known form-code descriptors for the `/sessions/online` open request."
   {:fa-3 {:systemCode "FA (3)" :schemaVersion "1-0E" :value "FA"}})
 
+;; `:cookie-policy :ignore` disables clj-http's (Apache HTTPClient) cookie
+;; parser entirely for every KSeF request — see the matching comment in
+;; invoices.ksef.auth. KSeF's Incapsula CDN sends `visid_incap_*` cookies in
+;; a format HTTPClient's default parser rejects, producing stderr warnings
+;; on every call. We don't read cookies, so we opt out of parsing them.
 (defn- json-get [url opts]
   (http/get url (merge {:as :json-strict :accept :json :throw-exceptions true
+                        :cookie-policy :ignore
                         :headers {"User-Agent" user-agent}}
                        opts)))
 
@@ -46,17 +52,20 @@
                          :accept :json
                          :as :json-strict
                          :throw-exceptions true
+                         :cookie-policy :ignore
                          :headers {"User-Agent" user-agent}
                          :body (json/generate-string body)}
                         opts)))
 
 (defn- raw-post [url opts]
   (http/post url (merge {:throw-exceptions true
+                         :cookie-policy :ignore
                          :headers {"User-Agent" user-agent}}
                         opts)))
 
 (defn- raw-get [url opts]
   (http/get url (merge {:as :string :throw-exceptions true
+                        :cookie-policy :ignore
                         :headers {"User-Agent" user-agent}}
                        opts)))
 

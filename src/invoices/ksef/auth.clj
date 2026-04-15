@@ -25,8 +25,15 @@
 
 (def ^:private user-agent "invoices-clj/ksef")
 
+;; `:cookie-policy :ignore` disables clj-http's (Apache HTTPClient) cookie
+;; parser entirely for every KSeF request. KSeF sits behind Imperva/Incapsula
+;; which sets `visid_incap_*` session cookies in a format HTTPClient's default
+;; parser rejects with a `WARNING: Invalid cookie header` on stderr for every
+;; request. Since we never read cookies from KSeF (each request carries its
+;; own Bearer token), the correct fix is to tell clj-http not to parse them.
 (defn- json-get [url opts]
   (http/get url (merge {:as :json-strict :accept :json :throw-exceptions true
+                        :cookie-policy :ignore
                         :headers {"User-Agent" user-agent}}
                        opts)))
 
@@ -35,6 +42,7 @@
                          :accept :json
                          :as :json-strict
                          :throw-exceptions true
+                         :cookie-policy :ignore
                          :headers {"User-Agent" user-agent}
                          :body (json/generate-string body)}
                         opts)))

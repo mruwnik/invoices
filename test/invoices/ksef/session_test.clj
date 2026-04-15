@@ -36,6 +36,30 @@
 (defn- bearer-value [call]
   (get-in call [:opts :headers "Authorization"]))
 
+(deftest cookie-policy-ignore-on-session-calls
+  (testing "every session clj-http call opts-in to :cookie-policy :ignore —
+            matches the same contract from auth. KSeF's Incapsula CDN sets
+            visid_incap_* cookies whose Expires format breaks HTTPClient's
+            parser; we never read cookies so we tell clj-http not to parse"
+    (let [calls (atom [])
+          gets (atom {(str base-url "/sessions/SES-1")
+                      (json-body {:status {:code 200}
+                                  :upo {:pages ["p1"]}})
+                      (str base-url "/sessions/SES-1/invoices/INV-1")
+                      (json-body {:ksefNumber "5265877635-20250826-0100001AF629-AF"})
+                      (str base-url "/sessions/SES-1/invoices/INV-1/upo")
+                      {:body "<upo/>"}})
+          posts (atom {(str base-url "/sessions/online/SES-1/close") {:status 204}})]
+      (with-redefs [http/get (stub-get gets calls)
+                    http/post (stub-post posts calls)]
+        (session/close-session base-url access-token "SES-1")
+        (session/fetch-session-status base-url access-token "SES-1")
+        (session/fetch-invoice-status base-url access-token "SES-1" "INV-1")
+        (session/fetch-invoice-upo base-url access-token "SES-1" "INV-1"))
+      (doseq [{:keys [url opts]} @calls]
+        (is (= :ignore (:cookie-policy opts))
+            (str "cookie-policy must be :ignore on " url))))))
+
 ;; ---------- valid-ksef-number? ----------
 
 (deftest valid-ksef-number-format-test
