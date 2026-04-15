@@ -26,6 +26,22 @@
     (= :np-eu vat-level) "np II"
     :else (str vat-level "%")))
 
+(defn vat-sort-key
+  "Total ordering over the heterogeneous `:vat` domain used for summary
+  rows: nil first (matching the legacy `(sort [8 nil])` → `(nil 8)`
+  order), then numeric rates ascending, then keyword classifications
+  in a stable canonical order. Mixed `:vat` across keywords and
+  integers would otherwise crash `sort` because Clojure's default
+  comparator can't compare Long to Keyword."
+  [vat-level]
+  (cond
+    (nil? vat-level)     [0]
+    (number? vat-level)  [1 vat-level]
+    (= :zw vat-level)    [2 0]
+    (= :np vat-level)    [2 1]
+    (= :np-eu vat-level) [2 2]
+    :else                [2 3 (str vat-level)]))
+
 (defn format-product [{netto :netto vat-level :vat title :title :as item}]
   (concat
    [[:cell {:colspan 4} title]]
@@ -115,7 +131,8 @@
           (map format-product)
           (map-indexed #(concat [(inc %1)] %2)))
      [(format-summary items :total (str "Razem do zapłaty: " (total items brutto) " PLN"))]
-     (->> items (map :vat) distinct sort (map (partial format-summary items))))
+     (->> items (map :vat) distinct (sort-by vat-sort-key)
+          (map (partial format-summary items))))
 
    [:table {:border false :padding 0 :spacing 0 :num-cols 6}
     [(format-param "Zapłacono") (format-value "0.00 PLN")
