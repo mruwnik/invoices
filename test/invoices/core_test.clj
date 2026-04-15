@@ -80,7 +80,7 @@
 (deftest process-invoices-survives-ksef-failure
   (testing "a throwing ksef chain on invoice N does not interrupt N+1"
     (let [pdf-renders (atom 0)
-          xml-calls   (atom 0)
+          auth-calls  (atom 0)
           worklogs {}
           invoices [(invoice-fixture {:ksef {:env :test :nip 1
                                              :token-env "K" :schema :fa-3}})
@@ -89,15 +89,16 @@
                                              :token-env "K" :schema :fa-3}})]
           config {:invoices invoices}]
       ;; Exercise the REAL façade so its outer try/catch is what swallows the
-      ;; crash. Stubbing an inner fn to throw proves the never-throw contract:
-      ;; sibling invoices must keep processing because the façade catches,
-      ;; not because core/for-month has its own defensive catch.
+      ;; crash. Stubbing auth (the first submodule after base-url resolution)
+      ;; to throw proves the never-throw contract: sibling invoices must keep
+      ;; processing because the façade catches, not because core/for-month
+      ;; has its own defensive catch.
       (with-redefs [pdf/render (fn [_ _ _] (swap! pdf-renders inc) fake-pdf)
                     email/send-invoice (fn [_ _ _] nil)
-                    xml/invoice->fa3-xml (fn [_]
-                                           (swap! xml-calls inc)
-                                           (throw (RuntimeException. "simulated xml crash")))
-                    auth/authenticate (fn [_] (throw (AssertionError. "should not reach auth")))
+                    auth/authenticate (fn [_]
+                                        (swap! auth-calls inc)
+                                        (throw (RuntimeException. "simulated auth crash")))
+                    xml/invoice->fa3-xml (fn [_] (throw (AssertionError. "should not reach xml — auth fails first")))
                     session/submit-invoice (fn [_] (throw (AssertionError. "should not reach session")))
                     ksef/getenv (fn [_] "tok")]
         (try
@@ -107,4 +108,4 @@
           (catch Throwable t
             (is false (str "process-invoices should never throw, got: " (.getMessage t))))))
       (is (= 3 @pdf-renders) "all three PDFs rendered despite ksef crashes")
-      (is (= 2 @xml-calls) "xml generator called only for the two invoices that had :ksef"))))
+      (is (= 2 @auth-calls) "auth called only for the two invoices that had :ksef"))))

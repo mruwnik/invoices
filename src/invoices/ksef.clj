@@ -26,8 +26,19 @@
   [name]
   (System/getenv name))
 
-(defn- sidecar-path [^java.io.File pdf-file ^String suffix]
-  (str/replace (.getPath pdf-file) #"\.pdf$" suffix))
+(defn- sidecar-path
+  "Build a sidecar path next to `pdf-file` by stripping any trailing
+  `.pdf` and appending `suffix`. Uses anchor-based string concat rather
+  than mid-path regex substitution: `invoice.pdf.bak` would otherwise
+  ship the regex `\\.pdf$` a false landing (anchored at end only), and
+  a directory-level `.pdf` component would be mangled. Concatenating
+  after a trimmed stem keeps the semantics dead-obvious."
+  [^java.io.File pdf-file ^String suffix]
+  (let [path (.getPath pdf-file)
+        stem (if (str/ends-with? path ".pdf")
+               (subs path 0 (- (count path) 4))
+               path)]
+    (str stem suffix)))
 
 (defn- resolve-token
   "Pick the KSeF access token to use, given a `:ksef` config map.
@@ -133,11 +144,11 @@
           nil)
       (try
         (let [base-url (resolve-base-url env)
-              invoice-xml (xml/invoice->fa3-xml invoice)
               {:keys [access-token]} (auth/authenticate
                                        {:base-url base-url
                                         :nip nip
                                         :token (:token resolved)})
+              invoice-xml (xml/invoice->fa3-xml invoice)
               result (session/submit-invoice
                        {:base-url base-url
                         :access-token access-token
@@ -147,5 +158,18 @@
           (println (str "    - KSeF accepted: " (:ksef-number result)))
           result)
         (catch Throwable t
-          (println (str "    - KSeF FAILED: " (.getMessage t)))
+          (println (str "    - KSeF FAILED: "
+                        (or (.getMessage t) (.getSimpleName (class t)))))
+          ;; Second line with structured detail from ex-info so oncall
+          ;; operators can tell a 440-duplicate (recoverable) from a
+          ;; 445-every-invoice-rejected (not) without re-running under
+          ;; a debugger. Only printed when the throwable carries useful
+          ;; context — dropping empty braces keeps the non-ex-info case
+          ;; visually quiet.
+          (let [data (ex-data t)
+                keep-keys [:session-ref :invoice-ref :session-status
+                           :invoice-status :reason :nip :base-url :schema]
+                subset (select-keys data keep-keys)]
+            (when (seq subset)
+              (println (str "      " (pr-str subset)))))
           nil)))))

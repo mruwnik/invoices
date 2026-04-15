@@ -74,7 +74,7 @@
                        #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-meta) pdf))]
           (is (re-find #"KSeF accepted: 1234567890-20260414-0100001AF629-AF" output))))
 
-      (is (= [:xml :auth :session] @calls) "chain executes in auth→xml→session order")
+      (is (= [:auth :xml :session] @calls) "chain executes auth→xml→session (auth first so we don't waste XML gen on a rejected token)")
       (is (= {:base-url "https://api-test.ksef.mf.gov.pl/v2"
               :nip 1234567890
               :token "ref|ctx|secret"}
@@ -193,6 +193,65 @@
                        #(is (nil? (ksef/submit-to-ksef
                                     (assoc base-invoice :ksef ksef-meta) pdf))))]
           (is (re-find #"KSeF FAILED: rejected" output)))))))
+
+(deftest submit-to-ksef-catch-prints-ex-data-detail
+  (testing "failures carrying ex-info session context print a second
+            indented line with session-ref / invoice-ref / status so
+            oncall operators can tell a 440 from a 445 without a debugger"
+    (let [pdf (tmp-pdf "rich-detail")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [_] {:access-token "A"})
+                    session/submit-invoice
+                    (fn [_]
+                      (throw (ex-info "KSeF session failed and no fallback ksefNumber available"
+                                      {:session-ref "SES-ABC"
+                                       :invoice-ref "INV-123"
+                                       :session-status {:code 445 :description "brak poprawnych faktur"}
+                                       :invoice-status {:status {:code 440}}})))
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "tok"})]
+        (let [output (with-captured-out
+                       #(is (nil? (ksef/submit-to-ksef
+                                    (assoc base-invoice :ksef ksef-meta) pdf))))]
+          (is (re-find #"KSeF FAILED: KSeF session failed" output))
+          (is (re-find #"SES-ABC" output) "second line must surface session-ref")
+          (is (re-find #"INV-123" output) "second line must surface invoice-ref")
+          (is (re-find #"445" output) "second line must surface session status code"))))))
+
+(deftest submit-to-ksef-catch-nil-message-falls-back-to-class
+  (testing "when the throwable's getMessage returns nil, fall back to the
+            class simple name so the log still identifies the failure"
+    (let [pdf (tmp-pdf "null-msg")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [_] (throw (NullPointerException.)))
+                    session/submit-invoice (fn [_] (throw (AssertionError. "unreachable")))
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "tok"})]
+        (let [output (with-captured-out
+                       #(is (nil? (ksef/submit-to-ksef
+                                    (assoc base-invoice :ksef ksef-meta) pdf))))]
+          (is (re-find #"KSeF FAILED: NullPointerException" output)
+              "nil message must surface the class name instead of 'null'"))))))
+
+(deftest sidecar-path-handles-non-trailing-pdf
+  (testing "sidecar-path trims an anchored `.pdf` suffix; arbitrary `.pdf`
+            substrings mid-path are NOT touched. Regex `\\.pdf$` on .getPath
+            was already end-anchored, but an exact-char-count subs is more
+            obviously correct."
+    (let [sidecar-path @#'invoices.ksef/sidecar-path
+          f (java.io.File. "/tmp/claude-10000/foo.pdf.bak/invoice.pdf")]
+      (is (= "/tmp/claude-10000/foo.pdf.bak/invoice.ksef.xml"
+             (sidecar-path f ".ksef.xml"))
+          "trims only the final `.pdf` — mid-path .pdf is preserved"))
+    (let [sidecar-path @#'invoices.ksef/sidecar-path
+          f (java.io.File. "/tmp/claude-10000/invoice.pdf")]
+      (is (= "/tmp/claude-10000/invoice.ksef.xml"
+             (sidecar-path f ".ksef.xml")))
+      (is (= "/tmp/claude-10000/invoice.upo.xml"
+             (sidecar-path f ".upo.xml"))))
+    (let [sidecar-path @#'invoices.ksef/sidecar-path
+          f (java.io.File. "/tmp/claude-10000/no-extension")]
+      (is (= "/tmp/claude-10000/no-extension.ksef.xml"
+             (sidecar-path f ".ksef.xml"))
+          "no .pdf suffix → just append"))))
 
 (deftest resolve-ksef-config-test
   (let [seller-with-ksef {:nip 1234567890
