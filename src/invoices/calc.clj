@@ -67,7 +67,18 @@
     0))
 
 (defn brutto [{netto :netto :as item}] (round (+ netto (vat item))))
-(defn netto [{brutto :brutto vat :vat}] (/ (* brutto 100) (+ 100 vat)))
+
+(defn netto
+  "Back-compute net from brutto. For the keyword VAT classifications (:zw,
+  :np, :np-eu, nil — 'no Polish VAT owed'), netto equals brutto because
+  there is no Polish VAT to strip out. Matches `vat`'s treatment of the
+  same cases (returns 0), so both sides of the calc are symmetric and
+  keyword-safe. Previously this did `(+ 100 vat)` unconditionally and
+  crashed on `:vat :np :brutto X` items with ClassCastException."
+  [{brutto :brutto vat :vat}]
+  (if (number? vat)
+    (/ (* brutto 100) (+ 100 vat))
+    brutto))
 
 (defn parse-custom
   "Parse the given function definition and execute it with the given `worklog`."

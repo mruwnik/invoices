@@ -36,6 +36,37 @@
     ; negative VAT, coz why not?
     (is (= (brutto {:netto 1000 :vat -23}) 770.0))))
 
+(deftest test-netto
+  (testing "numeric VAT rates back-compute from brutto as before"
+    (is (= 100.0 (double (netto {:brutto 123 :vat 23}))))
+    (is (= 100.0 (double (netto {:brutto 108 :vat 8}))))
+    (is (= 100.0 (double (netto {:brutto 100 :vat 0})))))
+  (testing "keyword VAT classifications ('no Polish VAT owed') → netto = brutto,
+            no ClassCastException. Symmetric with `vat` which returns 0 for
+            the same cases. The production crash that motivated this fix was
+            `:vat :np :brutto 34769.44`"
+    (is (= 100 (netto {:brutto 100 :vat :np}))
+        ":np — outside-RP place of supply")
+    (is (= 100 (netto {:brutto 100 :vat :zw}))
+        ":zw — domestic exempt")
+    (is (= 100 (netto {:brutto 100 :vat :np-eu}))
+        ":np-eu — intra-EU recap")
+    (is (= 100 (netto {:brutto 100 :vat nil}))
+        "nil — legacy :zw alias")
+    (is (= 34769.44 (netto {:brutto 34769.44 :vat :np}))
+        "exact numbers from the user's blocked production run")))
+
+(deftest test-set-price-keyword-vat-brutto-end-to-end
+  (testing "set-price on the production-crash shape: `:vat :np :brutto N`
+            must not throw and must attach :netto equal to :brutto"
+    (let [result (set-price nil {:brutto 34769.44
+                                 :vat :np
+                                 :title "Software development"})]
+      (is (= 34769.44 (:netto result))
+          "netto back-compute must short-circuit to brutto for :np items")
+      (is (= :np (:vat result)) ":vat preserved unchanged")
+      (is (= "Software development" (:title result)) ":title preserved unchanged"))))
+
 
 (deftest test-parse-custom
   (testing "Check that the specified operators are allowed"
