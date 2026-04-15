@@ -202,10 +202,10 @@
     4. No :nip → <BrakID>1</BrakID>
 
   The nested Nazwa element comes after the identifier choice per
-  TPodmiot2 schema sequence."
+  TPodmiot2 schema sequence. Caller is expected to pass a buyer whose
+  `:country` has already been upper-cased (see `podmiot2`)."
   [buyer]
-  (let [{:keys [nip country name]} buyer
-        country (when country (str/upper-case country))]
+  (let [{:keys [nip country name]} buyer]
     (xml/element ::fa/DaneIdentyfikacyjne {}
       (concat
         (cond
@@ -225,11 +225,12 @@
         [(xml/element ::fa/Nazwa {} (str name))]))))
 
 (defn- podmiot2 [buyer]
-  (xml/element ::fa/Podmiot2 {}
-    (dane-identyfikacyjne-podmiot2 buyer)
-    (adres buyer)
-    (xml/element ::fa/JST {} "2")
-    (xml/element ::fa/GV {} "2")))
+  (let [buyer (update buyer :country #(some-> % str/upper-case))]
+    (xml/element ::fa/Podmiot2 {}
+      (dane-identyfikacyjne-podmiot2 buyer)
+      (adres buyer)
+      (xml/element ::fa/JST {} "2")
+      (xml/element ::fa/GV {} "2"))))
 
 (defn- bucket-sum-elements
   "Emit the optional P_13_N/P_14_N groups in the exact order required by the
@@ -323,7 +324,11 @@
       (xml/element ::fa/NrWierszaFa {} (str (inc idx)))
       (xml/element ::fa/P_7 {} (str (:title item)))
       (xml/element ::fa/P_8A {} (or (:unit item) "szt."))
-      (xml/element ::fa/P_8B {} (qty-str (or (:quantity item) 1)))
+      ;; P_8B is pinned to 1 because the rest of the codebase treats every
+      ;; item's `:netto` as the final line total, not a unit price — so
+      ;; multiplying by a quantity here would double-count. `:quantity` is
+      ;; validated upstream in calc.clj to reject values other than nil/1.
+      (xml/element ::fa/P_8B {} (qty-str 1))
       (xml/element ::fa/P_9A {} (amount-str netto))
       (xml/element ::fa/P_11 {} (amount-str netto))
       (xml/element ::fa/P_12 {} (item-vat-code item)))))

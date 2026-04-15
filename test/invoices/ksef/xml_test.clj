@@ -252,6 +252,23 @@
     (is (= "100.00" (text (child wiersz "P_11"))))
     (is (= "23" (text (child wiersz "P_12"))))))
 
+(deftest p8b-pinned-to-one
+  (testing "P_8B is always 1.000000. The rest of the codebase treats :netto
+            as the final line total, not a unit price, so any quantity
+            multiplier would double-count. P_11 (net value on the line)
+            therefore equals the item's :netto verbatim."
+    (doseq [q-hint [nil 1 "1"]]
+      (let [item (cond-> {:vat 23 :netto 100 :title "t"}
+                   (some? q-hint) (assoc :quantity q-hint))
+            xml (fa/invoice->fa3-xml (assoc single-item-invoice :items [item]))
+            wiersz (child (child (.getDocumentElement (parse-doc xml)) "Fa")
+                          "FaWiersz")]
+        (is (= "1.000000" (text (child wiersz "P_8B")))
+            (str "P_8B must be 1.000000 for :quantity " (pr-str q-hint)))
+        (is (= "100.00" (text (child wiersz "P_11")))
+            (str "P_11 must equal netto regardless of :quantity "
+                 (pr-str q-hint)))))))
+
 (deftest exempt-item-sets-p19
   (let [xml (fa/invoice->fa3-xml
               (assoc single-item-invoice
@@ -688,6 +705,25 @@
       (is (nil? (child dane "NrID")))
       (is (nil? (child dane "NrVatUE")))
       (is (nil? (child dane "BrakID"))))))
+
+(deftest podmiot2-country-is-normalized-upper-case
+  (testing "Lowercase :country is upper-cased in BOTH KodKraju (identifier
+            branch) and Adres/KodKraju — FA(3) TKodKraju is a closed
+            upper-case enum, so 'de' would XSD-fail if passed through"
+    (let [lower-de {:name "Bundenbach GmbH"
+                    :address "Unterstrasse 12, 10115 Berlin"
+                    :country "de"
+                    :nip "DE123456789"}
+          xml (fa/invoice->fa3-xml (assoc np-eu-single-item-invoice :buyer lower-de))
+          p2  (child (.getDocumentElement (parse-doc xml)) "Podmiot2")
+          dane (child p2 "DaneIdentyfikacyjne")
+          adr  (child p2 "Adres")]
+      (is (= "DE" (text (child dane "KodUE")))
+          "FAIL-LOUD: identifier branch must upper-case :country")
+      (is (= "DE" (text (child adr "KodKraju")))
+          "FAIL-LOUD: Adres branch must also upper-case :country")
+      (is (nil? (validate-xsd xml))
+          "Must XSD-validate — TKodKraju is a closed upper-case enum"))))
 
 (deftest podmiot2-no-nip-uses-brak-id
   (testing "Buyer without :nip → <BrakID>1</BrakID>"
