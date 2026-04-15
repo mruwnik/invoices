@@ -326,6 +326,60 @@ qualified cert via the KSeF taxpayer panel before troubleshooting.
 Note that the KSeF sandbox has daily maintenance windows around 16:00–18:00
 Europe/Warsaw; failures during that window are environmental, not bugs.
 
+### Live smoke tests
+
+For cases where you want to exercise the FULL submission pipeline
+across multiple flow categories in one shot (not just the single
+happy-path case that `clj -X:test` covers via `integration_test.clj`),
+there is a dedicated `:live` alias:
+
+    source /tmp/claude-10000/ksef-env.sh   # or your own env file
+    clj -X:live
+
+This runs the live-smoke battery in `live/invoices/ksef/live_smoke.clj`.
+Two environments are exercised when credentials are available:
+
+ * **TEST** (`api-test.ksef.mf.gov.pl`) — protocol edge cases. The
+   headline test is duplicate-detection: the battery submits the same
+   invoice twice and asserts KSeF returns error 440 on the second
+   submission, verifying that our `session.clj` correctly extracts the
+   `originalKsefNumber` from `[:status :extensions :originalKsefNumber]`.
+ * **DEMO** (`api-demo.ksef.mf.gov.pl`) — real-world flow coverage.
+   One submission per flow category: non-EU `:np`, Polish mixed VAT
+   rates (23/8/5), intra-EU `:np-eu`, Polish `:zw`, and a plain
+   single-line 23% sanity check.
+
+Credentials are read from two independent env-var triples:
+
+    export KSEF_TEST_TOKEN=<test-token>
+    export KSEF_TEST_NIP=<nip>
+    export KSEF_TEST_BASE=https://api-test.ksef.mf.gov.pl/v2
+
+    export KSEF_DEMO_TOKEN=<demo-token>
+    export KSEF_DEMO_NIP=<nip>
+    export KSEF_DEMO_BASE=https://api-demo.ksef.mf.gov.pl/v2
+
+If either triple is incomplete, that environment's battery is skipped
+with a single log line and the run continues. If BOTH triples are
+missing, `clj -X:live` exits cleanly without touching the network —
+this is a deliberate guardrail so the alias is safe to leave in place
+on machines that shouldn't submit to the Ministry of Finance at all.
+
+The battery is deliberately kept OUT of `clj -X:test` (via its own
+`live/` source path) so the unit-test run stays fast and network-free.
+Expect a full run to take roughly 1–3 minutes per environment depending
+on sandbox latency.
+
+Every run appends its structured report to
+`/home/claude/data/team-logs/ksef-integration.md` under a dated
+`### Live-smoke run <iso-timestamp>` header, so the team log retains
+a linear history of every submission and every captured ksefNumber.
+The KSeF token is a **bearer credential** — never commit the env file
+and never run `clj -X:live` with PROD credentials as an experiment.
+The alias talks to sandboxes only because you pointed it at sandboxes
+via the `KSEF_*_BASE` vars; there is no `:prod` safety rail beyond
+"don't set the base URL to prod."
+
 ### Security
 
 The KSeF token is a bearer credential — anyone with the token string can submit

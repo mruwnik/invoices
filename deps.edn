@@ -14,4 +14,8 @@
 
   :test {:extra-paths ["test"]
          :exec-fn test-runner/run
-         :main-opts ["-m" "test-runner"]}}}
+         :main-opts ["-m" "test-runner"]}
+
+  :live {:extra-paths ["live"]
+         :exec-fn invoices.ksef.live-smoke/run
+         :main-opts ["-m" "invoices.ksef.live-smoke"]}}}
