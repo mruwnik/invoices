@@ -434,7 +434,42 @@
           (is (some? @thrown) "expected no-fallback ex-info after lookup failure")
           (is (re-find #"no fallback ksefNumber" (.getMessage @thrown)))
           (is (re-find #"duplicate-fallback lookup failed.*probe-boom" (str out))
-              "breadcrumb for the swallowed exception must reach stdout"))))))
+              "breadcrumb for the swallowed exception must reach stdout"))))
+    (testing "message-less exception falls back to the class name, never an empty log line"
+      (let [invoice-xml "<Faktura/>"
+            gets (atom {(str base-url "/security/public-key-certificates")
+                        (json-body [{:usage ["SymmetricKeyEncryption"] :certificate "DER"}])
+                        (str base-url "/sessions/SES-Q")
+                        (json-body {:status {:code 445 :description "Brak poprawnych faktur"}})})
+            posts (atom {(str base-url "/sessions/online")
+                         (json-body {:referenceNumber "SES-Q"})
+                         (str base-url "/sessions/online/SES-Q/invoices")
+                         (json-body {:referenceNumber "INV-Q"})
+                         (str base-url "/sessions/online/SES-Q/close")
+                         {:status 204}})]
+        (with-redefs [http/get  (stub-get gets (atom []))
+                      http/post (stub-post posts (atom []))
+                      session/fetch-invoice-status (fn [& _] (throw (NullPointerException.)))
+                      crypto/parse-x509-cert-der (fn [_] ::fake-pk)
+                      crypto/generate-aes-key (fn [] (reify javax.crypto.SecretKey
+                                                       (getEncoded [_] (byte-array 32 (byte 0)))
+                                                       (getAlgorithm [_] "AES")
+                                                       (getFormat [_] "RAW")))
+                      crypto/generate-iv (fn [] (byte-array 16 (byte 0)))
+                      crypto/rsa-oaep-sha256-encrypt (fn [_ _] (byte-array [1]))
+                      crypto/aes-256-cbc-encrypt (fn [_ _ pt] pt)]
+          (let [out (java.io.StringWriter.)]
+            (binding [*out* out]
+              (try (session/submit-invoice {:base-url base-url
+                                             :access-token access-token
+                                             :invoice-xml invoice-xml
+                                             :poll-interval-ms 1
+                                             :poll-timeout-ms 5000})
+                   (catch clojure.lang.ExceptionInfo _ nil)))
+            (is (re-find #"duplicate-fallback lookup failed: NullPointerException" (str out))
+                "class name reaches stdout when .getMessage is nil")
+            (is (not (re-find #"duplicate-fallback lookup failed: *$" (str out)))
+                "breadcrumb line must never be empty after the colon")))))))
 
 (deftest submit-invoice-session-failed-no-fallback-test
   (testing "session fails AND no fallback ksefNumber on the per-invoice record →

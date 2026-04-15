@@ -7,9 +7,26 @@
           :bank "Skok hop"
           ;; Recommended: define :ksef once at the seller level; every invoice
           ;; in this config inherits it. :nip defaults from :seller :nip.
+          ;;
+          ;; Two ways to supply the KSeF access token — pick whichever fits
+          ;; your deployment. Both may be set simultaneously.
+          ;;
+          ;; (a) Env-var indirection (clean for shared configs / CI):
           ;; :ksef {:env :test                ; :test | :demo | :prod
-          ;;        :token-env "KSEF_TOKEN"   ; name of the env var holding the secret
+          ;;        :token-env "KSEF_TOKEN"   ; name of env var holding the secret
           ;;        :schema :fa-3}
+          ;;
+          ;; (b) Literal in-config (fine for single-machine setups where the
+          ;;     config file already has appropriate filesystem permissions —
+          ;;     the token is as readable as the file itself):
+          ;; :ksef {:env :test
+          ;;        :token "20260415-EC-...|nip-...|..."
+          ;;        :schema :fa-3}
+          ;;
+          ;; (c) Both: env-var wins when set; literal is the fallback. Lets
+          ;;     operators override the literal at runtime without touching
+          ;;     the config file.
+          ;; :ksef {:env :test :token "<literal-fallback>" :token-env "KSEF_TOKEN" :schema :fa-3}
           }
  :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
  :invoices [{:buyer {:name "Buty S.A."

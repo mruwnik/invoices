@@ -29,6 +29,35 @@
 (defn- sidecar-path [^java.io.File pdf-file ^String suffix]
   (str/replace (.getPath pdf-file) #"\.pdf$" suffix))
 
+(defn- resolve-token
+  "Pick the KSeF access token to use, given a `:ksef` config map.
+
+  Returns `{:token <string>}` on success or `{:skip <reason>}` otherwise —
+  the caller logs the reason and skips the submission.
+
+  Precedence (env var beats literal when both are set and the env var is
+  populated):
+
+    1. `:token-env \"KSEF_TOKEN\"` set AND the named env var is non-blank
+       → use the env var's value. The env var retains its runtime-override
+       semantics: if an operator bothered to export it, honor their choice.
+    2. `:token \"<literal>\"` set (literal token string in-config) → use it.
+       Useful for single-machine setups where the config file already sits
+       behind appropriate filesystem permissions and env-var indirection
+       buys nothing. Security: the token is as readable as the config file.
+    3. Neither → skip with an explanatory reason.
+
+  When both are set but the env var is unset/blank, the literal wins
+  (the env var was clearly intended as an optional override that wasn't
+  exercised this run, not a required opt-in)."
+  [{:keys [token token-env]}]
+  (let [env-val (when token-env (getenv token-env))]
+    (cond
+      (not (str/blank? env-val))  {:token env-val}
+      (not (str/blank? token))    {:token token}
+      token-env                   {:skip (str "env var " token-env " not set")}
+      :else                       {:skip ":token / :token-env missing from :ksef config"})))
+
 (defn- write-sidecars!
   "Spit `<pdf>.ksef.xml` and — if present — `<pdf>.upo.xml` next to the PDF.
   `upo-xml` can be nil on the duplicate-detection path, where KSeF returns the
@@ -97,25 +126,18 @@
   Side effects: writes `<pdf>.ksef.xml` and `<pdf>.upo.xml` next to the PDF;
   prints a single status line to stdout."
   [invoice pdf-file]
-  (let [{:keys [env nip token-env schema] :or {schema :fa-3}} (:ksef invoice)
-        token (when token-env (getenv token-env))]
-    (cond
-      (nil? token-env)
-      (do (println "    - KSeF submission skipped: :token-env missing from :ksef config")
+  (let [{:keys [env nip schema] :or {schema :fa-3} :as ksef-config} (:ksef invoice)
+        resolved (resolve-token ksef-config)]
+    (if-let [reason (:skip resolved)]
+      (do (println (str "    - KSeF submission skipped: " reason))
           nil)
-
-      (str/blank? token)
-      (do (println (str "    - KSeF submission skipped: env var " token-env " not set"))
-          nil)
-
-      :else
       (try
         (let [base-url (resolve-base-url env)
               invoice-xml (xml/invoice->fa3-xml invoice)
               {:keys [access-token]} (auth/authenticate
                                        {:base-url base-url
                                         :nip nip
-                                        :token token})
+                                        :token (:token resolved)})
               result (session/submit-invoice
                        {:base-url base-url
                         :access-token access-token

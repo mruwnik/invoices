@@ -104,6 +104,67 @@
           (is (re-find #"KSeF submission skipped: env var KSEF_TEST not set" output))))
       (is (empty? @calls) "no ksef chain calls when the token env var is unset"))))
 
+(deftest submit-to-ksef-literal-token-test
+  (testing "literal `:token` string in config is used directly — no env-var
+            lookup, no indirection, the token reaches auth/authenticate as-is"
+    (let [pdf (tmp-pdf "literal-token")
+          captured (atom nil)
+          ksef-literal (-> ksef-meta (dissoc :token-env) (assoc :token "LITERAL-TOK"))]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [opts] (reset! captured (:token opts)) {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                    :upo-xml "<UPO/>"})
+                    ksef/getenv          (stub-getenv {})]
+        (with-captured-out
+          #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-literal) pdf)))
+      (is (= "LITERAL-TOK" @captured)
+          "auth/authenticate received the literal :token directly"))))
+
+(deftest submit-to-ksef-token-env-wins-over-literal-test
+  (testing "when BOTH :token-env and :token are set AND the env var resolves,
+            the env var value wins (runtime override semantics preserved)"
+    (let [pdf (tmp-pdf "env-wins")
+          captured (atom nil)
+          ksef-both (assoc ksef-meta :token "LITERAL-LOSER")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [opts] (reset! captured (:token opts)) {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                    :upo-xml "<UPO/>"})
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "ENV-WINNER"})]
+        (with-captured-out
+          #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-both) pdf)))
+      (is (= "ENV-WINNER" @captured)
+          ":token-env resolved to a non-blank value → wins over :token literal"))))
+
+(deftest submit-to-ksef-literal-fallback-when-env-unset-test
+  (testing "both set but env var unset → literal :token is used as fallback
+            (operator didn't export the override this run, fall back to literal)"
+    (let [pdf (tmp-pdf "env-unset")
+          captured (atom nil)
+          ksef-both (assoc ksef-meta :token "LITERAL-FALLBACK")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [opts] (reset! captured (:token opts)) {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                    :upo-xml "<UPO/>"})
+                    ksef/getenv          (stub-getenv {})]
+        (with-captured-out
+          #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-both) pdf)))
+      (is (= "LITERAL-FALLBACK" @captured)
+          "env var blank → fall back to literal :token"))))
+
+(deftest submit-to-ksef-no-token-at-all-test
+  (testing "neither :token nor :token-env set → skip with a descriptive reason"
+    (let [pdf (tmp-pdf "no-token-at-all")
+          ksef-neither (dissoc ksef-meta :token-env)]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] (throw (Exception. "should not reach xml")))
+                    auth/authenticate    (fn [_] (throw (Exception. "should not reach auth")))
+                    session/submit-invoice (fn [_] (throw (Exception. "should not reach session")))
+                    ksef/getenv          (stub-getenv {})]
+        (let [output (with-captured-out
+                       #(is (nil? (ksef/submit-to-ksef
+                                    (assoc base-invoice :ksef ksef-neither) pdf))))]
+          (is (re-find #"KSeF submission skipped:.*:token / :token-env missing" output)))))))
+
 (deftest submit-to-ksef-auth-throws-is-caught
   (testing "auth failure is logged and returns nil; no sidecars written"
     (let [pdf (tmp-pdf "auth-boom")

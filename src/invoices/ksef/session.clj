@@ -231,7 +231,7 @@
   (try (fetch-invoice-status base-url access-token session-ref invoice-ref)
        (catch Throwable t
          (println (str "    - KSeF duplicate-fallback lookup failed: "
-                       (.getMessage t)))
+                       (or (.getMessage t) (.getSimpleName (class t)))))
          nil)))
 
 (defn submit-invoice

@@ -229,8 +229,11 @@ Keys inside the `:ksef` map:
 
  * `:env` — `:test` | `:demo` | `:prod` — which KSeF environment to submit to. Start with `:test` until you have a known-good flow.
  * `:nip` — the seller's NIP as a number or string. Must match the context of the token. **Optional** at the `:ksef` level: if omitted, it defaults to the `:seller :nip` at the top of the config (which you already have to set for the PDF anyway).
- * `:token-env` — the **name** of an environment variable that holds the token. The token itself is NEVER written to `config.edn`; the tool reads it from the environment at runtime. If the env var is unset, submission for that invoice is skipped with a log line (other invoices still process).
+ * `:token-env` — the **name** of an environment variable that holds the token. The token itself is never written to `config.edn`; the tool reads it from the environment at runtime. Ideal for shared configs, CI, or any deployment where the same config file is used across machines with different credentials.
+ * `:token` — the **literal token string** embedded directly in the config. Fine for single-machine setups where the config file already has appropriate filesystem permissions (the token is as readable as the file itself; env-var indirection doesn't buy you anything extra in that case). Keep `config.edn` out of version control if you use this form.
  * `:schema` — `:fa-3`. `:fa-2` is legacy: still accepted by prod for backward-compatibility within the Ministry of Finance's deprecation window, but don't use it for new integrations. Stick with FA(3).
+
+Precedence when both `:token-env` and `:token` are set: the env var wins **if it resolves to a non-blank value**; otherwise the literal `:token` is used as a fallback. This lets operators override an in-config literal at runtime (e.g., for a one-off submission under a different token) without editing the file. If neither form is set — or `:token-env` names a variable that isn't exported and no `:token` is present — submission for that invoice is skipped with a log line, and other invoices in the same run continue processing.
 
 #### Per-invoice override
 
