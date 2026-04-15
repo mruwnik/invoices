@@ -51,7 +51,15 @@
 (defn send-invoice [file to {from :user password :pass :as smtp}]
   (if (sequential? to)
     (doseq [address to] (send-invoice file address smtp))
-    (when (and (not-any? nil? [to from smtp file])
+    ;; Nil-check the individual locals we actually depend on, not the
+    ;; whole smtp map. The old `(not-any? nil? [to from smtp file])`
+    ;; form looked correct but was load-bearing on `smtp` being the
+    ;; raw map (never nil in practice because callers always pass a
+    ;; destructurable map), so a config missing `:user` would pass
+    ;; the guard and then explode in `InternetAddress.` with an
+    ;; opaque NPE. Checking `from` and `password` directly catches
+    ;; that at the boundary and no-ops cleanly instead.
+    (when (and (not-any? nil? [to from password file])
                (try
                  (let [session (Session/getInstance (smtp-properties smtp))
                        msg (build-message session from to (.getName file) file)]

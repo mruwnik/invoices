@@ -129,5 +129,9 @@
       (with-redefs [email/send-message! (fn [_ _ _] (swap! called inc))]
         (email/send-invoice pdf nil {:host "h" :user "u@x" :pass "p"})
         (email/send-invoice pdf "to@x" nil)
-        (email/send-invoice pdf "to@x" {:host "h" :pass "p"})) ;; no :user
-      (is (= 0 @called)))))
+        (email/send-invoice pdf "to@x" {:host "h" :pass "p"})    ;; no :user
+        (email/send-invoice pdf "to@x" {:host "h" :user "u@x"})  ;; no :pass
+        (email/send-invoice pdf nil nil)                          ;; both nil
+        (email/send-invoice nil "to@x" {:host "h" :user "u" :pass "p"})) ;; no file
+      (is (= 0 @called)
+          "all variants must be silent no-ops — no transport call, no exception"))))
