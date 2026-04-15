@@ -19,7 +19,10 @@
           :account "12 3456 7890 1234 5678 9012 3456"
           :bank "Bank PKO BP"
           :email "mr.blobby@example.com"
-          :phone 555123456}
+          :phone 555123456
+          :ksef {:env :test
+                 :token-env "KSEF_TEST_TOKEN"
+                 :schema :fa-3}}
  :font-path "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
  :invoices [{:buyer {:name "Buty S.A."
                      :address "ul. Szewska 32, 76-543 Bakow"
@@ -30,8 +33,4 @@
                      {:vat 8  :netto 450.00M  :title "Remont biura"}
                      {:vat 5  :netto 200.00M  :title "Materialy biurowe"}
                      {:vat :zw :netto 100.00M :title "Uslugi zwolnione z VAT"
-                      :notes ["Podstawa zwolnienia z VAT: art. 113 ust. 1 i 9 Ustawa o VAT"]}]
-             :ksef {:env :test
-                    :nip 1234567890
-                    :token-env "KSEF_TEST_TOKEN"
-                    :schema :fa-3}}]}
+                      :notes ["Podstawa zwolnienia z VAT: art. 113 ust. 1 i 9 Ustawa o VAT"]}]}]}

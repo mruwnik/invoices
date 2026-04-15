@@ -36,6 +36,46 @@
   (spit (sidecar-path pdf-file ".ksef.xml") invoice-xml)
   (spit (sidecar-path pdf-file ".upo.xml") upo-xml))
 
+(defn resolve-ksef-config
+  "Combine seller-level and invoice-level `:ksef` blocks into an effective
+  config, or return nil to mean 'do not submit this invoice'.
+
+  Merge semantics (pure — no I/O, no var access):
+
+    * Invoice contains `:ksef` key with value nil or false → explicit opt-out.
+      Return nil even if the seller has a :ksef block. This is the escape
+      hatch for a run where most invoices go through KSeF but one shouldn't.
+    * Invoice contains `:ksef` key with a map → `(merge seller-ksef invoice-ksef)`.
+      Invoice keys override individual seller keys; an empty map inherits
+      the seller's full config (distinct from nil-opt-out).
+    * Invoice has no `:ksef` key → use the seller's block as-is.
+    * Neither has `:ksef` → nil (current non-KSeF behavior).
+
+  NIP fallback: if the effective config has no `:nip` but the seller has
+  one at the top level, default to seller's :nip. Invoice-level :ksef :nip
+  still wins (for branch/subsidiary billing).
+
+  Legacy invoice-only configs (no seller :ksef, :ksef on the invoice) pass
+  through unchanged — the merge with an empty base is a no-op."
+  [seller invoice]
+  (let [seller-ksef (:ksef seller)
+        has-inv-key (contains? invoice :ksef)
+        inv-ksef    (:ksef invoice)]
+    (cond
+      (and has-inv-key (not inv-ksef))
+      nil
+
+      has-inv-key
+      (let [merged (merge seller-ksef inv-ksef)]
+        (cond-> merged
+          (and (not (:nip merged)) (:nip seller)) (assoc :nip (:nip seller))))
+
+      seller-ksef
+      (cond-> seller-ksef
+        (and (not (:nip seller-ksef)) (:nip seller)) (assoc :nip (:nip seller)))
+
+      :else nil)))
+
 (defn- resolve-base-url [env]
   (or (get base-urls env)
       (throw (ex-info (str "Unknown KSeF env: " env

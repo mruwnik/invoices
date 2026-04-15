@@ -28,11 +28,16 @@
 
 (defn for-month [{seller :seller buyer :buyer smtp :smtp callbacks :callbacks :as invoice} date & [number font]]
   (let [inv-number (invoice-number date number)
-        file (pdf/render invoice date inv-number)]
+        file (pdf/render invoice date inv-number)
+        effective-ksef (ksef/resolve-ksef-config seller invoice)]
     (email/send-invoice file (:email buyer) smtp)
     (run-callbacks file callbacks)
-    (when (:ksef invoice)
-      (ksef/submit-to-ksef (assoc invoice :date date :number inv-number) file))))
+    (when effective-ksef
+      (ksef/submit-to-ksef (assoc invoice
+                                  :date date
+                                  :number inv-number
+                                  :ksef effective-ksef)
+                           file))))
 
 (defn item-price [worklogs item]
   (-> item :worklog (worklogs) (set-price item)))

@@ -214,23 +214,46 @@ Odbioru) confirmation. Three environments are supported: `:test`
 
 ### Config shape
 
-Add a `:ksef` map to any invoice that should be submitted:
+Define `:ksef` **once** at the seller level and every invoice in the
+config inherits it:
 
-    :invoices [{:buyer {(...)}
-                :items [(...)]
-                :ksef {:env :test
-                       :nip 6423166047
-                       :token-env "KSEF_TOKEN"
-                       :schema :fa-3}}]
+    {:seller {:name "Mr. Blobby"
+              :nip 6423166047
+              :ksef {:env :test
+                     :token-env "KSEF_TOKEN"
+                     :schema :fa-3}}
+     :invoices [{:buyer {(...)} :items [(...)]}      ; inherits → submits
+                {:buyer {(...)} :items [(...)]}]}    ; inherits → submits
 
-Keys:
+Keys inside the `:ksef` map:
 
  * `:env` — `:test` | `:demo` | `:prod` — which KSeF environment to submit to. Start with `:test` until you have a known-good flow.
- * `:nip` — the seller's NIP as a number or string. Must match the context of the token.
+ * `:nip` — the seller's NIP as a number or string. Must match the context of the token. **Optional** at the `:ksef` level: if omitted, it defaults to the `:seller :nip` at the top of the config (which you already have to set for the PDF anyway).
  * `:token-env` — the **name** of an environment variable that holds the token. The token itself is NEVER written to `config.edn`; the tool reads it from the environment at runtime. If the env var is unset, submission for that invoice is skipped with a log line (other invoices still process).
  * `:schema` — `:fa-3`. `:fa-2` is legacy: still accepted by prod for backward-compatibility within the Ministry of Finance's deprecation window, but don't use it for new integrations. Stick with FA(3).
 
-Invoices without a `:ksef` key behave exactly as before (PDF only).
+#### Per-invoice override
+
+An invoice can override individual keys (or opt out entirely) by setting
+its own `:ksef` block. Invoice-level keys **merge over** the seller-level
+block — you only have to specify what changes:
+
+    :invoices [{:buyer {(...)} :items [(...)]}                     ; inherits seller :ksef
+               {:buyer {(...)} :items [(...)] :ksef {:env :prod}}  ; override just :env
+               {:buyer {(...)} :items [(...)] :ksef nil}           ; explicit opt-out (PDF only)
+               {:buyer {(...)} :items [(...)] :ksef {:nip 999}}]   ; branch billing — override NIP
+
+Merge semantics:
+
+ * Invoice has no `:ksef` key → **inherit** the seller's block verbatim.
+ * Invoice has `:ksef` as a map → `(merge seller-ksef invoice-ksef)`. Invoice keys win on individual fields; an empty map `{}` is equivalent to inheritance.
+ * Invoice has `:ksef nil` (or `false`) → **explicit opt-out**. This invoice generates a PDF but does NOT submit to KSeF, even if the seller has a `:ksef` block. Useful for a mixed run.
+
+The **legacy per-invoice shape** — `:ksef` on the invoice with no seller-level
+block — still works unchanged; the merge is simply against an empty base.
+
+Invoices without any `:ksef` (neither at seller nor invoice level) behave
+exactly as before (PDF only).
 
 ### Running
 

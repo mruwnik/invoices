@@ -133,6 +133,67 @@
                                     (assoc base-invoice :ksef ksef-meta) pdf))))]
           (is (re-find #"KSeF FAILED: rejected" output)))))))
 
+(deftest resolve-ksef-config-test
+  (let [seller-with-ksef {:nip 1234567890
+                          :ksef {:env :test
+                                 :token-env "KSEF_TOKEN"
+                                 :schema :fa-3}}
+        seller-no-ksef   {:nip 1234567890}]
+
+    (testing "(a) seller-only inheritance: invoice has no :ksef key → uses seller's"
+      (let [result (ksef/resolve-ksef-config seller-with-ksef {:buyer {} :items []})]
+        (is (= :test (:env result)))
+        (is (= "KSEF_TOKEN" (:token-env result)))
+        (is (= :fa-3 (:schema result)))
+        (is (= 1234567890 (:nip result)) "NIP defaults from seller :nip")))
+
+    (testing "(b) invoice override merge: invoice :ksef merges over seller's"
+      (let [result (ksef/resolve-ksef-config seller-with-ksef
+                                              {:ksef {:env :prod}})]
+        (is (= :prod (:env result)) "invoice key wins")
+        (is (= "KSEF_TOKEN" (:token-env result)) "unchanged seller key inherited")
+        (is (= :fa-3 (:schema result)) "unchanged seller key inherited")))
+
+    (testing "(c) explicit opt-out with :ksef nil → nil even if seller has :ksef"
+      (is (nil? (ksef/resolve-ksef-config seller-with-ksef {:ksef nil}))))
+
+    (testing "(c') explicit opt-out with :ksef false → nil (same as nil)"
+      (is (nil? (ksef/resolve-ksef-config seller-with-ksef {:ksef false}))))
+
+    (testing "(d) legacy invoice-only: no seller :ksef, invoice :ksef → passes through"
+      (let [result (ksef/resolve-ksef-config
+                     seller-no-ksef
+                     {:ksef {:env :test :token-env "T" :schema :fa-3}})]
+        (is (= :test (:env result)))
+        (is (= "T" (:token-env result)))
+        (is (= 1234567890 (:nip result)) "NIP still defaults from seller :nip")))
+
+    (testing "(e) NIP fallback from seller when seller :ksef has no :nip"
+      (let [result (ksef/resolve-ksef-config seller-with-ksef {:buyer {} :items []})]
+        (is (= 1234567890 (:nip result)))))
+
+    (testing "(f) NIP override at invoice :ksef level (branch/subsidiary billing)"
+      (let [result (ksef/resolve-ksef-config seller-with-ksef
+                                              {:ksef {:nip 9999999999}})]
+        (is (= 9999999999 (:nip result)) "invoice override wins over seller NIP")))
+
+    (testing "empty invoice :ksef map inherits seller's full config (distinct from opt-out)"
+      (let [result (ksef/resolve-ksef-config seller-with-ksef {:ksef {}})]
+        (is (= :test (:env result)))
+        (is (= "KSEF_TOKEN" (:token-env result)))
+        (is (= :fa-3 (:schema result)))
+        (is (= 1234567890 (:nip result)))))
+
+    (testing "neither seller nor invoice has :ksef → nil"
+      (is (nil? (ksef/resolve-ksef-config seller-no-ksef {:buyer {} :items []}))))
+
+    (testing "explicit seller :ksef :nip is preserved (not overwritten by seller-level :nip)"
+      (let [seller {:nip 1111111111
+                    :ksef {:env :test :nip 2222222222
+                           :token-env "K" :schema :fa-3}}
+            result (ksef/resolve-ksef-config seller {})]
+        (is (= 2222222222 (:nip result)) ":ksef :nip wins over top-level :nip")))))
+
 (deftest env-url-lookup
   (testing ":test/:demo/:prod all resolve; unknown env fails fast inside the try"
     (let [pdf (tmp-pdf "env-check")

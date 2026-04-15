@@ -46,6 +46,37 @@
         (is (= "1/4/2026" (:number inv))
             "invoice number is threaded through as the same string used on the PDF")))))
 
+(deftest for-month-inherits-seller-level-ksef
+  (testing "seller-level :ksef is inherited when the invoice has no :ksef key"
+    (let [captured (atom nil)
+          seller-ksef {:env :test :token-env "K" :schema :fa-3}]
+      (with-redefs [pdf/render (fn [_ _ _] fake-pdf)
+                    email/send-invoice (fn [_ _ _] nil)
+                    ksef/submit-to-ksef (fn [inv _] (reset! captured inv) nil)]
+        (core/for-month (invoice-fixture {:seller {:name "S" :nip 1 :ksef seller-ksef}})
+                        (java.time.LocalDate/parse "2026-04-14")
+                        1))
+      (is (some? @captured) "submit-to-ksef invoked via seller inheritance")
+      (let [{:keys [env token-env schema nip]} (:ksef @captured)]
+        (is (= :test env))
+        (is (= "K" token-env))
+        (is (= :fa-3 schema))
+        (is (= 1 nip) "NIP defaulted from seller top-level :nip")))))
+
+(deftest for-month-invoice-ksef-nil-opts-out
+  (testing ":ksef nil at invoice level opts out even if seller has :ksef"
+    (let [called? (atom false)]
+      (with-redefs [pdf/render (fn [_ _ _] fake-pdf)
+                    email/send-invoice (fn [_ _ _] nil)
+                    ksef/submit-to-ksef (fn [_ _] (reset! called? true) nil)]
+        (core/for-month (invoice-fixture {:seller {:name "S" :nip 1
+                                                    :ksef {:env :test :token-env "K"
+                                                           :schema :fa-3}}
+                                          :ksef nil})
+                        (java.time.LocalDate/parse "2026-04-14")
+                        1))
+      (is (false? @called?) "submit-to-ksef not invoked when invoice opts out with :ksef nil"))))
+
 (deftest process-invoices-survives-ksef-failure
   (testing "a throwing ksef chain on invoice N does not interrupt N+1"
     (let [pdf-renders (atom 0)
