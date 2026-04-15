@@ -730,3 +730,40 @@
       (is (some? (child fa-el "DodatkowyOpis")))
       (is (str/includes? (str sw) "WARN")
           "USD item-level currency must produce a warning"))))
+
+(deftest strict-vat-keyword-validation
+  (testing "unknown :vat keyword (typo) throws with a clear message"
+    (let [bad {:seller sample-seller
+               :buyer  sample-buyer
+               :number "TYPO-1/4/2026"
+               :date   (LocalDate/of 2026 4 14)
+               :items  [{:vat :np-us :netto 100 :title "Typo bucket"}]}
+          thrown (try (fa/invoice->fa3-xml bad)
+                      nil
+                      (catch Exception e e))]
+      (is (some? thrown) "must throw instead of silently routing to zw")
+      (is (str/includes? (.getMessage thrown) ":np-us")
+          "error message must mention the invalid keyword verbatim")
+      (is (str/includes? (.getMessage thrown) ":np")
+          "error message must list :np as a valid alternative")
+      (is (= :np-us (:vat (ex-data thrown)))
+          "ex-data must carry the offending :vat value")))
+
+  (testing "valid :vat values all pass validation"
+    (doseq [v [23 22 8 7 5 4 3 0 :np :np-eu :zw nil]]
+      (let [inv {:seller sample-seller
+                 :buyer  sample-buyer
+                 :number (str "OK-" v)
+                 :date   (LocalDate/of 2026 4 14)
+                 :items  [{:vat v :netto 100 :title (str "t-" v)}]}]
+        (is (some? (fa/invoice->fa3-xml inv))
+            (str "valid :vat " (pr-str v) " must not throw")))))
+
+  (testing "string VAT values are rejected (not integer, not a valid keyword)"
+    (let [bad {:seller sample-seller
+               :buyer  sample-buyer
+               :number "STR-1"
+               :date   (LocalDate/of 2026 4 14)
+               :items  [{:vat "23" :netto 100 :title "string vat"}]}]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown :vat value"
+                            (fa/invoice->fa3-xml bad))))))

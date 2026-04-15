@@ -67,6 +67,23 @@
   {23 "23" 22 "22" 8 "8" 7 "7" 5 "5" 4 "4" 3 "3" 0 "0 KR"
    :np "np I" :np-eu "np II" :zw "zw"})
 
+(def ^:private valid-vat-values
+  "Canonical set of accepted `:vat` values. Anything outside this set is
+  a typo (e.g. `:np-us` for `:np`) and must fail loud instead of silently
+  routing to the zw-exempt bucket — misclassification of a np item is a
+  legal problem, not a rendering problem."
+  (conj (set (keys vat-code)) nil))
+
+(defn- validate-item-vat!
+  "Throw on unknown `:vat` values so typos surface at submission time."
+  [{vat :vat :as item}]
+  (when-not (contains? valid-vat-values vat)
+    (throw (ex-info
+             (str "Unknown :vat value: " (pr-str vat)
+                  ". Valid values: integer rates (23, 22, 8, 7, 5, 4, 3, 0),"
+                  " :zw, :np, :np-eu, or nil.")
+             {:vat vat :item item}))))
+
 (defn- item-vat-code [{vat :vat}]
   (or (vat-code vat) "zw"))
 
@@ -373,6 +390,7 @@
   emitted citing the legal basis so the KSeF-stored document carries the
   annotation independently of the PDF."
   [{:keys [seller buyer items number date] :as invoice}]
+  (run! validate-item-vat! items)
   (let [doc (xml/element ::fa/Faktura {}
               (naglowek)
               (podmiot1 seller)
