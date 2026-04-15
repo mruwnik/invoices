@@ -89,7 +89,7 @@
 
 (defn pdf-body
   "Generate the actual pdf body"
-  [title seller buyer items when number font]
+  [title seller buyer items currency when number font]
   [{:title         title
      :right-margin  50
      :author        (:name seller)
@@ -108,7 +108,9 @@
     [:table {:border false :padding 0 :spacing 0 :num-cols 6}
      [(format-param "sprzedawca") (format-value (:name seller)) (format-param "nabywca") (format-value (:name buyer))]
      [(format-param "adres") (format-value (:address seller)) (format-param "adres") (format-value (:address buyer))]
-     [(format-param "nip") (format-value (:nip seller)) (format-param "nip") (format-value (:nip buyer))]
+     (into
+      [(format-param "nip") (format-value (:nip seller))]
+      (if (:nip buyer) [(format-param "nip") (format-value (:nip buyer))] ["" "" ""]))
      (clojure.core/when (:phone seller) [(format-param "numer telefonu") (format-value (:phone seller))])]
 
     [:spacer]
@@ -130,13 +132,12 @@
      (->> items
           (map format-product)
           (map-indexed #(concat [(inc %1)] %2)))
-     [(format-summary items :total (str "Razem do zapłaty: " (total items brutto) " PLN"))]
-     (->> items (map :vat) distinct (sort-by vat-sort-key)
-          (map (partial format-summary items))))
+     [(format-summary items :total (str "Razem do zapłaty: " (total items brutto) " " currency))]
+     (->> items (map :vat) distinct sort (map (partial format-summary items))))
 
    [:table {:border false :padding 0 :spacing 0 :num-cols 6}
-    [(format-param "Zapłacono") (format-value "0.00 PLN")
-     (format-param "Do zapłaty") (format-value (str (total items brutto) " PLN"))]]
+    [(format-param "Zapłacono") (format-value (str "0.00 " currency))
+     (format-param "Do zapłaty") (format-value (str (total items brutto) " " currency))]]
 
    ])
 
@@ -168,11 +169,11 @@
     (conj body (format-notes all-notes))))
 
 
-(defn render [{seller :seller buyer :buyer items :items font-path :font-path :as invoice} when number]
+(defn render [{currency :currency seller :seller buyer :buyer items :items font-path :font-path :as invoice} when number]
   (let [title (get-title invoice number)]
     (println " - rendering" title)
     (-> title
-        (pdf-body seller buyer items when number (clojure.core/when font-path {:encoding :unicode :ttf-name font-path}))
+        (pdf-body seller buyer items (or currency "PLN") when number (clojure.core/when font-path {:encoding :unicode :ttf-name font-path}))
         (add-notes items)
         (pdf (str title ".pdf")))
     (-> title (str ".pdf") java.io.File.)))
