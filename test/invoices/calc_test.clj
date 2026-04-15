@@ -121,3 +121,57 @@
 
     (testing "Check that custom func used if provided"
       (is (= (round (:netto (set-price worked {:function '(* :worked 12)}))) 1200.0)))))
+
+(deftest test-validate-item-vat!
+  (testing "unknown :vat keyword (typo) throws with a clear message and carries ex-data"
+    (let [thrown (try (validate-item-vat! {:vat :np-us :netto 100 :title "Typo"})
+                      nil
+                      (catch Exception e e))]
+      (is (some? thrown) "must throw instead of silently passing through")
+      (is (clojure.string/includes? (.getMessage thrown) ":np-us")
+          "error message must mention the invalid keyword verbatim")
+      (is (clojure.string/includes? (.getMessage thrown) ":np")
+          "error message must list :np as a valid alternative")
+      (is (= :np-us (:vat (ex-data thrown)))
+          "ex-data must carry the offending :vat value")))
+
+  (testing "valid :vat values all pass validation"
+    (doseq [v [23 22 8 7 5 4 3 0 :np :np-eu :zw nil]]
+      (is (nil? (validate-item-vat! {:vat v :netto 100 :title "t"}))
+          (str "valid :vat " (pr-str v) " must not throw"))))
+
+  (testing "string VAT values are rejected (not integer, not a valid keyword)"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown :vat value"
+                          (validate-item-vat! {:vat "23" :netto 100 :title "t"})))))
+
+(deftest test-validate-item-quantity!
+  (testing "nil / 1 / \"1\" all pass (the only shapes P_8B=1 is safe for)"
+    (doseq [q [nil 1 "1"]]
+      (is (nil? (validate-item-quantity! {:quantity q :netto 100 :title "t"}))
+          (str ":quantity " (pr-str q) " must be accepted"))
+      (is (nil? (validate-item-quantity! (cond-> {:netto 100 :title "t"}
+                                            (some? q) (assoc :quantity q))))
+          (str "quantity " (pr-str q) " must be accepted via the absent-key path too"))))
+
+  (testing "any non-trivial :quantity throws with a descriptive message"
+    (doseq [q [0 2 5 "2" 1.0 :many]]
+      (let [thrown (try (validate-item-quantity! {:quantity q :netto 100 :title "t"})
+                        nil
+                        (catch Exception e e))]
+        (is (some? thrown) (str ":quantity " (pr-str q) " must fail loud"))
+        (is (clojure.string/includes? (.getMessage thrown) ":quantity"))
+        (is (= q (:quantity (ex-data thrown)))
+            "ex-data must carry the offending :quantity value")))))
+
+(deftest test-set-price-runs-validators
+  (testing "set-price surfaces :vat typos regardless of which pricing branch ran"
+    (doseq [bad [{:vat :np-us :netto 100}
+                 {:vat :np-us :hourly 10}
+                 {:vat :np-us :base 100 :per-day 4}
+                 {:vat :np-us :function '(* :worked 10)}]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown :vat value"
+                            (set-price {:worked 100 :required 168} bad))
+          (str "set-price must reject " (pr-str bad)))))
+  (testing "set-price surfaces bad :quantity regardless of pricing branch"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported :quantity"
+                          (set-price {} {:vat 23 :netto 100 :quantity 3})))))
