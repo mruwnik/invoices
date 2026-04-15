@@ -217,6 +217,35 @@
           (is (re-find #"INV-123" output) "second line must surface invoice-ref")
           (is (re-find #"445" output) "second line must surface session status code"))))))
 
+(deftest submit-to-ksef-catch-surfaces-auth-level-ex-data
+  (testing "auth-level ex-data (top-level :status map from poll-auth-status)
+            surfaces :code, :description, and :details on separate lines so a
+            stale-token 450 reports its Polish description + 'Invalid token'
+            detail — the previous select-keys filter silently dropped this
+            because it only covered :session-status / :invoice-status"
+    (let [pdf (tmp-pdf "auth-rich-detail")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] (throw (AssertionError. "xml after auth")))
+                    auth/authenticate
+                    (fn [_]
+                      (throw (ex-info "KSeF authentication failed"
+                                      {:status {:code 450
+                                                :description "Uwierzytelnianie zakończone niepowodzeniem z powodu błędnego tokenu"
+                                                :details ["Invalid token"]}})))
+                    session/submit-invoice (fn [_] (throw (AssertionError. "session after auth")))
+                    ksef/getenv (stub-getenv {"KSEF_TEST" "stale-token"})]
+        (let [output (with-captured-out
+                       #(is (nil? (ksef/submit-to-ksef
+                                    (assoc base-invoice :ksef ksef-meta) pdf))))]
+          (is (re-find #"KSeF FAILED: KSeF authentication failed" output))
+          (is (re-find #"450" output)
+              "auth status code must appear in the detail output")
+          (is (re-find #"Uwierzytelnianie" output)
+              "Polish description from KSeF must appear verbatim so the user
+               can correlate with the KSeF dashboard / email alerts")
+          (is (re-find #"Invalid token" output)
+              ":details array entries must surface so the specific failure
+               reason is visible without rerunning under a debugger"))))))
+
 (deftest submit-to-ksef-catch-nil-message-falls-back-to-class
   (testing "when the throwable's getMessage returns nil, fall back to the
             class simple name so the log still identifies the failure"
