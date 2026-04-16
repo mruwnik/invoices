@@ -296,7 +296,8 @@
           (is (= {:ksef-number ksef-num
                   :upo-xml upo-xml
                   :invoice-ref "INV-99"
-                  :session-ref "SES-1"}
+                  :session-ref "SES-1"
+                  :duplicate? false}
                  result))))
 
       (testing "endpoints hit in the documented order"
@@ -409,7 +410,9 @@
           (is (= original-ksef (:ksef-number result)))
           (is (nil? (:upo-xml result)) ":upo-xml nil on duplicate — no UPO exists")
           (is (= "INV-DUP" (:invoice-ref result)))
-          (is (= "SES-DUP" (:session-ref result)))))
+          (is (= "SES-DUP" (:session-ref result)))
+          (is (true? (:duplicate? result))
+              ":duplicate? must be true on the 445+440 fallback path")))
       (is (false? @upo-called?)
           "UPO endpoint must not be called when the session failed — KSeF would 404")
       (testing "endpoints hit in order — UPO is absent"
@@ -609,7 +612,8 @@
           (is (= {:ksef-number ksef-num
                   :upo-xml upo-xml
                   :invoice-ref "INV-5"
-                  :session-ref "SES-7"}
+                  :session-ref "SES-7"
+                  :duplicate? false}
                  result))))
 
       (testing "all 12 endpoints hit in the documented composition order"

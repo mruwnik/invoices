@@ -253,12 +253,16 @@
     :schema       — `:fa-3` (default)
     :poll-interval-ms / :poll-timeout-ms — optional polling overrides
 
-  Returns `{:ksef-number ..., :upo-xml ..., :invoice-ref ..., :session-ref ...}`.
-  On the duplicate-detection path (session code 445 + per-invoice 440) the
-  returned `:ksef-number` is the `originalKsefNumber` from the first submission
-  and `:upo-xml` is nil — KSeF only serves a UPO for the original, not the
-  duplicate. Throws ex-info on HTTP failure, malformed KSeF number, session
-  timeout, or when the session failed AND no fallback ksefNumber was present."
+  Returns `{:ksef-number ..., :upo-xml ..., :invoice-ref ..., :session-ref ...,
+             :duplicate? bool}`.
+  `:duplicate?` is true when the ksefNumber came from the 445+440 fallback path
+  (KSeF already had an invoice with the same (NIP, type, P_2)) rather than from
+  a fresh acceptance. The caller uses this to differentiate logging and to avoid
+  overwriting sidecars with content that KSeF never stored.
+  On the duplicate path `:upo-xml` is nil — KSeF only serves a UPO for the
+  original submission, not the duplicate.
+  Throws ex-info on HTTP failure, malformed KSeF number, session timeout, or
+  when the session failed AND no fallback ksefNumber was present."
   [{:keys [base-url access-token invoice-xml schema
            poll-interval-ms poll-timeout-ms]
     :or {schema :fa-3}}]
@@ -303,4 +307,5 @@
      :upo-xml (when session-ok?
                 (fetch-invoice-upo base-url access-token session-ref invoice-ref))
      :invoice-ref invoice-ref
-     :session-ref session-ref}))
+     :session-ref session-ref
+     :duplicate? (not session-ok?)}))

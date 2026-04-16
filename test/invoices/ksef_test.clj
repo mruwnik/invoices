@@ -67,7 +67,8 @@
                       {:ksef-number "1234567890-20260414-0100001AF629-AF"
                        :upo-xml upo-xml
                        :invoice-ref "INV-1"
-                       :session-ref "SES-1"})
+                       :session-ref "SES-1"
+                       :duplicate? false})
 
                     ksef/getenv (stub-getenv {"KSEF_TEST" "ref|ctx|secret"})]
         (let [output (with-captured-out
@@ -342,6 +343,75 @@
                            :token-env "K" :schema :fa-3}}
             result (ksef/resolve-ksef-config seller {})]
         (is (= 2222222222 (:nip result)) ":ksef :nip wins over top-level :nip")))))
+
+(deftest submit-to-ksef-prints-accepted-on-happy-path
+  (testing "non-duplicate result prints 'KSeF accepted', not 'duplicate'"
+    (let [pdf (tmp-pdf "accepted-log")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [_] {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                     :upo-xml "<UPO/>"
+                                                     :invoice-ref "I" :session-ref "S"
+                                                     :duplicate? false})
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "tok"})]
+        (let [output (with-captured-out
+                       #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-meta) pdf))]
+          (is (re-find #"KSeF accepted:" output))
+          (is (not (re-find #"duplicate" output))
+              "happy path must not mention 'duplicate'"))))))
+
+(deftest submit-to-ksef-prints-duplicate-on-fallback-path
+  (testing "duplicate result prints 'KSeF duplicate' with actionable remedy, not 'accepted'"
+    (let [pdf (tmp-pdf "duplicate-log")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "<x/>")
+                    auth/authenticate    (fn [_] {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                     :upo-xml nil
+                                                     :invoice-ref "I" :session-ref "S"
+                                                     :duplicate? true})
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "tok"})]
+        (let [output (with-captured-out
+                       #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-meta) pdf))]
+          (is (re-find #"KSeF duplicate:" output))
+          (is (re-find #"increment the number" output)
+              "must include actionable remedy")
+          (is (not (re-find #"KSeF accepted:" output))
+              "duplicate path must NOT say 'accepted'"))))))
+
+(deftest submit-to-ksef-preserves-ksef-xml-sidecar-on-duplicate
+  (testing "when :duplicate? true and .ksef.xml already exists, it is NOT overwritten"
+    (let [pdf (tmp-pdf "dup-sidecar-keep")
+          stem (str/replace (.getPath pdf) #"\.pdf$" "")
+          ksef-path (str stem ".ksef.xml")]
+      (spit ksef-path "ORIGINAL-CONTENT")
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "NEW-REJECTED-CONTENT")
+                    auth/authenticate    (fn [_] {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                     :upo-xml nil
+                                                     :invoice-ref "I" :session-ref "S"
+                                                     :duplicate? true})
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "tok"})]
+        (with-captured-out
+          #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-meta) pdf)))
+      (is (= "ORIGINAL-CONTENT" (slurp ksef-path))
+          ".ksef.xml must retain the original (accepted) content"))))
+
+(deftest submit-to-ksef-writes-ksef-xml-sidecar-on-happy-path
+  (testing "when :duplicate? false, .ksef.xml is written with the new XML"
+    (let [pdf (tmp-pdf "happy-sidecar-write")
+          stem (str/replace (.getPath pdf) #"\.pdf$" "")
+          ksef-path (str stem ".ksef.xml")]
+      (with-redefs [xml/invoice->fa3-xml (fn [_] "FRESH-INVOICE-XML")
+                    auth/authenticate    (fn [_] {:access-token "A"})
+                    session/submit-invoice (fn [_] {:ksef-number "1234567890-20260414-0100001AF629-AF"
+                                                     :upo-xml "<UPO/>"
+                                                     :invoice-ref "I" :session-ref "S"
+                                                     :duplicate? false})
+                    ksef/getenv          (stub-getenv {"KSEF_TEST" "tok"})]
+        (with-captured-out
+          #(ksef/submit-to-ksef (assoc base-invoice :ksef ksef-meta) pdf)))
+      (is (= "FRESH-INVOICE-XML" (slurp ksef-path))
+          ".ksef.xml must contain the new invoice XML"))))
 
 (deftest env-url-lookup
   (testing ":test/:demo/:prod all resolve; unknown env fails fast inside the try"
