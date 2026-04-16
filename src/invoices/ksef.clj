@@ -71,11 +71,17 @@
 
 (defn- write-sidecars!
   "Spit `<pdf>.ksef.xml` and — if present — `<pdf>.upo.xml` next to the PDF.
-  `upo-xml` can be nil on the duplicate-detection path, where KSeF returns the
-  original ksefNumber but no fresh UPO. Any I/O error propagates and is caught
-  by the outer try in `submit-to-ksef`."
-  [pdf-file invoice-xml upo-xml]
-  (spit (sidecar-path pdf-file ".ksef.xml") invoice-xml)
+  On the duplicate path, the `.ksef.xml` sidecar is only written when no
+  pre-existing file exists — the existing file matches what KSeF actually
+  accepted; overwriting it with this run's (rejected) content would create
+  an inconsistency. `upo-xml` is nil on the duplicate path."
+  [pdf-file invoice-xml upo-xml duplicate?]
+  (let [ksef-path (sidecar-path pdf-file ".ksef.xml")]
+    (if duplicate?
+      (if (.exists (java.io.File. ksef-path))
+        (println "      (keeping existing .ksef.xml sidecar; new content was not submitted)")
+        (spit ksef-path invoice-xml))
+      (spit ksef-path invoice-xml)))
   (when upo-xml
     (spit (sidecar-path pdf-file ".upo.xml") upo-xml)))
 
@@ -186,8 +192,15 @@
                         :access-token access-token
                         :invoice-xml invoice-xml
                         :schema schema})]
-          (write-sidecars! pdf-file invoice-xml (:upo-xml result))
-          (println (str "    - KSeF accepted: " (:ksef-number result)))
+          (write-sidecars! pdf-file invoice-xml (:upo-xml result) (:duplicate? result))
+          (if (:duplicate? result)
+            (do (println (str "    - KSeF duplicate: " (:ksef-number result)))
+                (println (str "      This invoice number was already submitted to KSeF. The"
+                              " content of this run was NOT accepted; the original submission's"
+                              " ksefNumber is shown above. To submit a new invoice with updated"
+                              " content, increment the number via -n <N> or change :number"
+                              " in your config.")))
+            (println (str "    - KSeF accepted: " (:ksef-number result))))
           result)
         (catch Throwable t
           (println (str "    - KSeF FAILED: "
